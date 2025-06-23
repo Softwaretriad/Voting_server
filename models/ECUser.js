@@ -2,15 +2,10 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
 const ECUserSchema = new mongoose.Schema({
+  name: { type: String, required: true },
   email: { type: String, required: true, unique: true, lowercase: true },
   password: { type: String, required: true },
-  plan: {
-    type: String,
-    enum: ["basic", "standard", "premium"],
-    default: "basic"
-  },
-  maxVoters: { type: Number, default: 1000 },
-  role: { type: String, default: "ec" }
+  schoolId: { type: mongoose.Schema.Types.ObjectId, ref: "School", required: true }
 });
 
 ECUserSchema.pre("save", async function (next) {
@@ -24,6 +19,3 @@ ECUserSchema.methods.matchPassword = function (plain) {
 };
 
 export default mongoose.model("ECUser", ECUserSchema);
-
-
-
