@@ -1,13 +1,14 @@
 import Voter from "../models/Voter.js";
+import sendEmail from "../utils/sendEmail.js";
 
 export const loginVoter = async (req, res) => {
   const { email } = req.body;
 
-  try {
-    if (!email) {
-      return res.status(400).json({ error: "Email is required" });
-    }
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
 
+  try {
     const voter = await Voter.findOne({ email: email.toLowerCase() });
 
     if (!voter) {
@@ -16,43 +17,24 @@ export const loginVoter = async (req, res) => {
       });
     }
 
-    // Allow login even if they already voted
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    voter.otp = otp;
+    voter.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min from now
+    await voter.save();
+
+    // Send OTP email
+    await sendEmail(voter.email, `Your OTP is: ${otp}`);
+
     return res.status(200).json({
-      message: voter.hasVoted ? "You have already voted" : "Login successful",
+      message: voter.hasVoted
+        ? "OTP sent. You have already voted"
+        : "OTP sent. Login initiated",
       voterId: voter._id,
       hasVoted: voter.hasVoted,
-      name: voter.name
+      name: voter.name,
     });
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
-  }
-};
-
-export const getUserDashboard = async (req, res) => {
-  const { voterId } = req.params;
-
-  try {
-    const voter = await Voter.findById(voterId);
-    if (!voter) return res.status(404).json({ error: "Voter not found" });
-
-    const election = await Election.findOne({ ecId: voter.ecId, status: { $in: ["active", "ended"] } });
-    if (!election) return res.status(404).json({ error: "No associated election found" });
-
-    const now = new Date();
-    const ended = now > election.endTime;
-
-    const dashboard = {
-      electionTitle: election.title,
-      endsAt: election.endTime,
-      hasEnded: ended,
-      hasVoted: voter.hasVoted,
-      voteStatus: voter.hasVoted ? "Vote submitted ✅" : "You have not voted ❌",
-      canVote: !voter.hasVoted && !ended,
-      candidates: !voter.hasVoted && !ended ? election.candidates : undefined, // optional
-    };
-
-    res.json(dashboard);
-  } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 };

@@ -1,25 +1,35 @@
+import Voter from "../models/Voter.js";
+import Election from "../models/Election.js";
+
 export const castVote = async (req, res) => {
-  const { voterId, candidate } = req.body;
+  const { candidate } = req.body;
+  const voter = req.voter; // from protectVoter middleware
 
   try {
-    const voter = await Voter.findById(voterId);
-    if (!voter) return res.status(404).json({ error: "Voter not found" });
+    if (!voter) return res.status(401).json({ error: "Unauthorized" });
 
     if (voter.hasVoted) {
-      return res.status(403).json({ error: "Already voted" });
+      return res.status(403).json({ error: "You have already voted" });
     }
 
-    const election = await Election.findOne({ ecId: voter.ecId, isActive: true });
-    if (!election) return res.status(400).json({ error: "No active election" });
+    const election = await Election.findOne({
+      schoolId: voter.schoolId,
+      status: "active",
+    });
 
-    election.votes.push({ candidate });
+    if (!election) {
+      return res.status(400).json({ error: "No active election found" });
+    }
+
+    // Add vote (optionally include voterId to prevent double-voting at backend level)
+    election.votes.push({ candidate, voterId: voter._id });
     await election.save();
 
     voter.hasVoted = true;
     await voter.save();
 
-    res.json({ message: "Vote submitted successfully" });
+    res.json({ message: "✅ Vote cast successfully" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Server error" });
   }
 };

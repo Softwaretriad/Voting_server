@@ -5,7 +5,11 @@ const VoterSchema = new mongoose.Schema({
   name: String,
   email: { type: String, required: true },
   studentId: String,
-  hasVoted: { type: Boolean, default: false }
+  hasVoted: { type: Boolean, default: false },
+  otp: String,
+  otpExpires: Date,
+  isVerified: { type: Boolean, default: false }
+
 });
 
 export default mongoose.model("Voter", VoterSchema);

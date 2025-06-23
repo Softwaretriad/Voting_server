@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import schoolRoutes from "./routes/schoolRoutes.js";
 import ecRoutes from "./routes/ecRoutes.js";
 import electionRoutes from "./routes/electionRoutes.js";
-import userRoutes from "./routes/user.js";
+import userRoutes from "./routes/voterRoutes.js";
 
 dotenv.config();
 
@@ -21,6 +21,11 @@ app.use("/api/user", userRoutes);
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB connected"))
   .catch(err => console.error("MongoDB error:", err));
+
+// Catch-all for undefined routes
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
 
 // Start server
 const PORT = process.env.PORT || 5000;
