@@ -1,12 +1,10 @@
+// routes/schoolRoutes.js
 import express from "express";
 import { createSchool, checkSubscription } from "../controllers/schoolController.js";
 
 const router = express.Router();
 
-// Create a new school
-router.post("/create", createSchool);
-
-// Check school subscription status
-router.get("/subscription/:schoolId", checkSubscription);
+router.post("/register", createSchool);               // POST /api/school/register
+router.get("/subscription/:schoolId", checkSubscription); // GET /api/school/subscription/:schoolId
 
 export default router;

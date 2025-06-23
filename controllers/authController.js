@@ -1,27 +1,28 @@
 import ECUser from "../models/ECUser.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-dotenv.config();
-
 import plans from "../utils/plans.js";
 
+dotenv.config();
 export const registerEC = async (req, res) => {
   try {
     console.log("BODY:", req.body);
 
-    const { email, password, plan } = req.body;
-    if (!email || !password || !plan) {
+    const { name, email, password, plan, schoolId } = req.body;
+    if (!email || !password || !plan || !name || !schoolId) {
       return res.status(400).json({ error: "Missing fields" });
     }
 
     const selectedPlan = plans[plan] || plans.basic;
 
-    const user = await ECUser.create({
-      email,
-      password,
-      plan,
-      maxVoters: selectedPlan.maxVoters
-    });
+   const user = await ECUser.create({
+    name,
+    email,
+    password,
+    plan,
+    maxVoters: selectedPlan.maxVoters,
+    schoolId
+});
 
     res.status(201).json({ message: "EC created", user });
   } catch (err) {

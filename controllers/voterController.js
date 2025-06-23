@@ -1,40 +1,114 @@
 import Voter from "../models/Voter.js";
+import Election from "../models/Election.js";
 import sendEmail from "../utils/sendEmail.js";
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+dotenv.config();
+
 
 export const loginVoter = async (req, res) => {
   const { email } = req.body;
-
-  if (!email) {
-    return res.status(400).json({ error: "Email is required" });
-  }
+  if (!email) return res.status(400).json({ error: "Email is required" });
 
   try {
     const voter = await Voter.findOne({ email: email.toLowerCase() });
+    if (!voter)
+      return res.status(404).json({ error: "Email not registered for voting" });
 
-    if (!voter) {
-      return res.status(404).json({
-        error: "This email is not registered as a voter. Please check with your EC."
-      });
-    }
-
-    // Generate 6-digit OTP
+    // 6-digit OTP, valid 10 min
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     voter.otp = otp;
-    voter.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min from now
-    await voter.save();
+    voter.otpExpires = Date.now() + 10 * 60 * 1000;
+   await voter.save({ validateBeforeSave: false });
 
-    // Send OTP email
+
     await sendEmail(voter.email, `Your OTP is: ${otp}`);
-
-    return res.status(200).json({
+    res.json({
       message: voter.hasVoted
-        ? "OTP sent. You have already voted"
-        : "OTP sent. Login initiated",
+        ? "OTP sent – you have already voted"
+        : "OTP sent – check your email",
       voterId: voter._id,
       hasVoted: voter.hasVoted,
       name: voter.name,
     });
   } catch (err) {
-    return res.status(500).json({ error: "Server error" });
+  console.error("Login Error:", err); // 👈 Add this line
+  res.status(500).json({ error: "Server error" });
+}
+};
+
+
+export const verifyOtp = async (req, res) => {
+  const { email, otp } = req.body;
+  try {
+    const voter = await Voter.findOne({ email: email.toLowerCase() });
+    if (
+      !voter ||
+      voter.otp !== otp ||
+      !voter.otpExpires ||
+      voter.otpExpires < Date.now()
+    ) {
+      return res.status(400).json({ error: "Invalid or expired OTP" });
+    }
+
+    voter.isVerified = true;
+    voter.otp = null;
+    voter.otpExpires = null;
+    await voter.save();
+
+    const token = jwt.sign({ voterId: voter._id }, process.env.JWT_SECRET, {
+      expiresIn: "2h",
+    });
+
+    res.json({ token, voterId: voter._id, hasVoted: voter.hasVoted });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+export const getUserDashboard = async (req, res) => {
+  // If you’re using protectVoter, prefer:  const voter = req.voter;
+  const { voterId } = req.params;
+
+  try {
+    const voter = await Voter.findById(voterId);
+    if (!voter) return res.status(404).json({ error: "Voter not found" });
+
+    const election = await Election.findOne({
+      schoolId: voter.schoolId,
+      status: { $in: ["active", "ended"] },
+    });
+    if (!election)
+      return res
+        .status(404)
+        .json({ error: "No election found for your school" });
+
+    const now = Date.now();
+    const hasEnded = now > election.endTime;
+
+    res.json({
+      electionTitle: election.title,
+      endsAt: election.endTime,
+      hasEnded,
+      hasVoted: voter.hasVoted,
+      voteStatus: voter.hasVoted ? "✅ Vote submitted" : "❌ Not yet voted",
+      canVote: !voter.hasVoted && !hasEnded,
+      candidates:
+        !voter.hasVoted && !hasEnded ? election.candidates : undefined,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+
+export const getVoterById = async (req, res) => {
+  const { voterId } = req.params;
+  try {
+    const voter = await Voter.findById(voterId).select("-otp -otpExpires");
+    if (!voter) return res.status(404).json({ error: "Voter not found" });
+    res.json(voter);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
   }
 };

@@ -1,19 +1,16 @@
 import express from "express";
-import {
-  addECMember,
-  listECMembers,
-  loginEC
-} from "../controllers/ecController.js";
+import { loginEC, registerEC, } from "../controllers/authController.js";
+import { addECMember, listECMembers } from "../controllers/ecController.js";
+import { protect } from "../middleware/authEC.js";
+
 
 const router = express.Router();
 
-// Add a new EC member (max 5 per school)
-router.post("/add-member", addECMember);
-
-// Get list of EC members for a school
-router.get("/list/:schoolId", listECMembers);
-
-// EC login
+router.post("/register", registerEC);
 router.post("/login", loginEC);
+
+// ecRoutes.js
+router.post("/add-member", protect, addECMember);
+router.get("/list/:schoolId", protect, listECMembers);
 
 export default router;

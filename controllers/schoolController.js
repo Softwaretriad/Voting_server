@@ -11,6 +11,7 @@ export const createSchool = async (req, res) => {
   }
 };
 
+
 /** Check subscription status */
 export const checkSubscription = async (req, res) => {
   const { schoolId } = req.params;

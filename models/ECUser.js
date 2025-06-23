@@ -5,8 +5,11 @@ const ECUserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true, lowercase: true },
   password: { type: String, required: true },
-  schoolId: { type: mongoose.Schema.Types.ObjectId, ref: "School", required: true }
+  schoolId: { type: mongoose.Schema.Types.ObjectId, ref: "School", required: true },
+  plan: { type: String, enum: ["basic", "standard", "premium"], default: "basic" },
+  maxVoters: { type: Number, default: 1000 }
 });
+
 
 ECUserSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();

@@ -4,7 +4,9 @@ import mongoose from "mongoose";
 import schoolRoutes from "./routes/schoolRoutes.js";
 import ecRoutes from "./routes/ecRoutes.js";
 import electionRoutes from "./routes/electionRoutes.js";
-import userRoutes from "./routes/voterRoutes.js";
+import voterRoutes from "./routes/voterRoutes.js";
+
+
 
 dotenv.config();
 
@@ -15,7 +17,8 @@ app.use(express.json());
 app.use("/api/school", schoolRoutes);
 app.use("/api/ec", ecRoutes);
 app.use("/api/election", electionRoutes);
-app.use("/api/user", userRoutes);
+app.use("/api/user", voterRoutes);
+ 
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI)

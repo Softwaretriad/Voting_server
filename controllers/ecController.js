@@ -24,6 +24,11 @@ export const addECMember = async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+  const existing = await ECUser.findOne({ email });
+  if (existing) {
+  return res.status(409).json({ error: "Email already registered" });
+}
+
 };
 
 /** List EC members for a school */

@@ -1,5 +1,5 @@
 import express from "express";
-import {loginVoter,verifyOtp,getUserDashboard} from "../controllers/voterController.js";
+import {loginVoter, verifyOtp, getUserDashboard, getVoterById} from "../controllers/voterController.js";
 import { castVote } from "../controllers/votingController.js";
 import checkElectionActive from "../middleware/checkElectionStatus.js";
 import { protectVoter } from "../middleware/authVoter.js";
@@ -17,6 +17,8 @@ router.get("/dashboard/:voterId", protectVoter, getUserDashboard);
 
 // Cast vote (JWT-protected + election still active)
 router.post("/vote", protectVoter, checkElectionActive, castVote);
+
+router.get("/voter/:voterId", protectVoter, getVoterById);
 
 
 export default router;
