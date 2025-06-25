@@ -40,14 +40,22 @@ export const loginVoter = async (req, res) => {
 
 export const verifyOtp = async (req, res) => {
   const { email, otp } = req.body;
+
   try {
+    console.log("🔍 Verifying OTP for:", email, otp);
+
     const voter = await Voter.findOne({ email: email.toLowerCase() });
+    if (!voter) {
+      console.log("❌ Voter not found");
+      return res.status(400).json({ error: "Invalid or expired OTP" });
+    }
+
     if (
-      !voter ||
       voter.otp !== otp ||
       !voter.otpExpires ||
       voter.otpExpires < Date.now()
     ) {
+      console.log("❌ OTP invalid or expired");
       return res.status(400).json({ error: "Invalid or expired OTP" });
     }
 
@@ -62,9 +70,11 @@ export const verifyOtp = async (req, res) => {
 
     res.json({ token, voterId: voter._id, hasVoted: voter.hasVoted });
   } catch (err) {
+    console.error("❌ OTP Verification Error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
+
 
 export const getUserDashboard = async (req, res) => {
   // If you’re using protectVoter, prefer:  const voter = req.voter;
