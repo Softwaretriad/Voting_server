@@ -32,7 +32,7 @@ export const loginVoter = async (req, res) => {
       name: voter.name,
     });
   } catch (err) {
-  console.error("Login Error:", err); // 👈 Add this line
+  console.error("Login Error:", err); 
   res.status(500).json({ error: "Server error" });
 }
 };
