@@ -14,7 +14,9 @@ export const protect = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const ecUser = await ECUser.findById(decoded.ecId).select("-password");
+    console.log("Decoded token:", decoded);
+
+    const ecUser = await ECUser.findById(decoded.userId).select("-password");
 
     if (!ecUser) {
       return res.status(401).json({ error: "EC user not found" });

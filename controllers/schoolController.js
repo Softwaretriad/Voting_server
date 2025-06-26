@@ -16,6 +16,8 @@ export const createSchool = async (req, res) => {
 export const checkSubscription = async (req, res) => {
   const { schoolId } = req.params;
   try {
+    console.log("Trying to find school with ID:", schoolId);
+
     const school = await School.findById(schoolId);
     if (!school) return res.status(404).json({ error: "School not found" });
     res.json({

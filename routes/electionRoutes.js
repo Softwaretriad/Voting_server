@@ -6,7 +6,7 @@ import { requirePlan } from "../middleware/subscription.js";
 const router = Router();
 
 
-router.post("/upload-voters", protect, requirePlan, uploadVoters);
+router.post("/upload-voters", protect, uploadVoters);
 router.post("/start", protect, requirePlan, startElection);
 
 export default router;

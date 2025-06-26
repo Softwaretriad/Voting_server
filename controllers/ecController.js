@@ -16,20 +16,22 @@ export const addECMember = async (req, res) => {
       return res.status(400).json({ error: "Maximum 5 EC members allowed" });
     }
 
+    const existing = await ECUser.findOne({ email });
+    if (existing) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+
     const ec = await ECUser.create({ name, email, password, schoolId });
     school.ecMembers.push(ec._id);
     await school.save();
 
-    res.status(201).json({ message: "EC member added", ecId: ec._id });
+    return res.status(201).json({ message: "EC member added", ecId: ec._id });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
-  const existing = await ECUser.findOne({ email });
-  if (existing) {
-  return res.status(409).json({ error: "Email already registered" });
-}
-
 };
+
+
 
 /** List EC members for a school */
 export const listECMembers = async (req, res) => {

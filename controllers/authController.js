@@ -14,7 +14,10 @@ export const registerEC = async (req, res) => {
     }
 
     const selectedPlan = plans[plan] || plans.basic;
-
+    const existing = await ECUser.findOne({ email });
+    if (existing) {
+    return res.status(409).json({ error: "Email already registered" });
+  }
    const user = await ECUser.create({
     name,
     email,

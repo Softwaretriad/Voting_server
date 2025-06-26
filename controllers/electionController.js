@@ -3,22 +3,30 @@ import School from "../models/school.js";
 import Voter from "../models/Voter.js";
 
 export const uploadVoters = async (req, res) => {
-  const { voters } = req.body; // array of { name, email, etc. }
-  const schoolId = req.schoolId; // from auth middleware
+  const { voters } = req.body;
+  const schoolId = req.schoolId;       
+  const ecId = req.ecUser._id;         
 
   try {
     if (!Array.isArray(voters) || voters.length === 0) {
       return res.status(400).json({ error: "Voter list is empty" });
     }
 
-    const votersWithSchool = voters.map(v => ({ ...v, schoolId }));
-    await Voter.insertMany(votersWithSchool);
+    const votersWithMeta = voters.map(v => ({
+      ...v,
+      schoolId,
+      ecId
+    }));
+
+    await Voter.insertMany(votersWithMeta);
 
     res.status(201).json({ message: `${voters.length} voters uploaded` });
   } catch (err) {
+    console.error("Upload voters error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
 
 export const startElection = async (req, res) => {
   const { schoolId, title, durationHours = 24 } = req.body;
