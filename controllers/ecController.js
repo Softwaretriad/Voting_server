@@ -2,6 +2,7 @@ import School from "../models/school.js";
 import ECUser from "../models/ECUser.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import Candidate from "../models/candidates.js";
 dotenv.config();
 
 /** Add EC member (≤ 5 per school) */
@@ -31,6 +32,31 @@ export const addECMember = async (req, res) => {
   }
 };
 
+export const uploadCandidates = async (req, res) => {
+  const { candidates, title } = req.body;
+  const schoolId = req.schoolId;
+
+  try {
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      return res.status(400).json({ error: "Candidate list is empty" });
+    }
+
+    for (const c of candidates) {
+      if (!c.name || !c.position) {
+        return res.status(400).json({ error: "Each candidate must have a name and position" });
+      }
+
+      await Candidate.create({ ...c, schoolId, title }); 
+    }
+
+    res.status(201).json({ message: `${candidates.length} candidates uploaded` });
+  } catch (err) {
+    console.error("Upload candidates error:", err);
+    res.status(500).json({ error: err.message });
+    console.log("Uploading candidates for schoolId:", schoolId);
+
+  }
+};
 
 
 /** List EC members for a school */
@@ -53,7 +79,7 @@ export const loginEC = async (req, res) => {
     if (!ec || !(await ec.matchPassword(password))) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
-    const token = jwt.sign({ ecId: ec._id, schoolId: ec.schoolId._id }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ userId: ec._id, schoolId: ec.schoolId._id }, process.env.JWT_SECRET, {
       expiresIn: "1d"
     });
     res.json({ token, ecId: ec._id, schoolId: ec.schoolId._id });

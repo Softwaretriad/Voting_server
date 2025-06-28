@@ -1,8 +1,8 @@
 import express from "express";
-import {loginVoter, verifyOtp, getUserDashboard, getVoterById} from "../controllers/voterController.js";
+import {loginVoter, verifyOtp, getUserDashboard, getVoterById,} from "../controllers/voterController.js";
 import { castVote } from "../controllers/votingController.js";
 import checkElectionActive from "../middleware/checkElectionStatus.js";
-import { protectVoter } from "../middleware/authVoter.js";
+import {protectVoter, isVoterVerified,} from "../middleware/authVoter.js"; 
 
 const router = express.Router();
 
@@ -12,13 +12,13 @@ router.post("/login", loginVoter);
 // Step 2: Voter verifies OTP and receives JWT
 router.post("/verify-otp", verifyOtp);
 
-// Voter dashboard (JWT-protected)
-router.get("/dashboard/:voterId", protectVoter, getUserDashboard);
+// ✅ Protected dashboard route
+router.get("/dashboard/:voterId", protectVoter, isVoterVerified, getUserDashboard);
 
-// Cast vote (JWT-protected + election still active)
-router.post("/vote", protectVoter, checkElectionActive, castVote);
+// ✅ Protected vote casting route
+router.post("/vote", protectVoter, isVoterVerified, checkElectionActive, castVote);
 
-router.get("/voter/:voterId", protectVoter, getVoterById);
-
+// ✅ Protected get voter profile route
+router.get("/:voterId", protectVoter, isVoterVerified, getVoterById);
 
 export default router;

@@ -1,57 +1,45 @@
-import ECUser from "../models/ECUser.js";
-import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
-import plans from "../utils/plans.js";
+import School from "../models/school.js"; // Make sure this is imported
 
-dotenv.config();
 export const registerEC = async (req, res) => {
   try {
-    console.log("BODY:", req.body);
-
     const { name, email, password, plan, schoolId } = req.body;
     if (!email || !password || !plan || !name || !schoolId) {
       return res.status(400).json({ error: "Missing fields" });
     }
 
     const selectedPlan = plans[plan] || plans.basic;
+
     const existing = await ECUser.findOne({ email });
     if (existing) {
-    return res.status(409).json({ error: "Email already registered" });
-  }
-   const user = await ECUser.create({
-    name,
-    email,
-    password,
-    plan,
-    maxVoters: selectedPlan.maxVoters,
-    schoolId
-});
+      return res.status(409).json({ error: "Email already registered" });
+    }
 
-    res.status(201).json({ message: "EC created", user });
+    const school = await School.findById(schoolId).populate("ecMembers");
+    if (!school) {
+      return res.status(404).json({ error: "School not found" });
+    }
+
+    if (school.ecMembers.length >= 5) {
+      return res.status(400).json({ error: "Maximum of 5 EC members allowed" });
+    }
+
+    // Create new EC user
+    const user = await ECUser.create({
+      name,
+      email,
+      password,
+      plan,
+      maxVoters: selectedPlan.maxVoters,
+      schoolId
+    });
+
+    // Link EC to school
+    school.ecMembers.push(user._id);
+    await school.save();
+
+    res.status(201).json({ message: "EC registered and added to school", user });
   } catch (err) {
     console.error("REGISTER ERROR:", err);
     res.status(500).json({ error: err.message });
-  }
-};
-
-
-export const loginEC = async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    const user = await ECUser.findOne({ email });
-    if (!user || !(await user.matchPassword(password))) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-    const token = jwt.sign(
-      { userId: user._id, email: user.email },
-      process.env.JWT_SECRET,
-      { expiresIn: "1d" }
-    );
-    res.json({
-      token,
-      user: { id: user._id, email: user.email, plan: user.plan }
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Server error" });
   }
 };

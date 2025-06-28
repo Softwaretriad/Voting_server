@@ -1,6 +1,6 @@
 import express from "express";
-import { loginEC, registerEC, } from "../controllers/authController.js";
-import { addECMember, listECMembers } from "../controllers/ecController.js";
+import {  registerEC } from "../controllers/authController.js";
+import { loginEC, addECMember, listECMembers } from "../controllers/ecController.js";
 import { protect } from "../middleware/authEC.js";
 
 

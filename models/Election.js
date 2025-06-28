@@ -6,10 +6,16 @@ const ElectionSchema = new mongoose.Schema({
   startTime: { type: Date },
   endTime: { type: Date, required: true },
   status: { type: String, enum: ["pending", "active", "ended"], default: "pending" },
-  candidates: [String],
+  candidates: [
+    {
+      name: { type: String, required: true },
+      position: { type: String, required: true }
+    }
+  ],
   votes: [
     {
       candidate: String,
+      voterId: { type: mongoose.Schema.Types.ObjectId, ref: "Voter" },
       timestamp: { type: Date, default: Date.now }
     }
   ]

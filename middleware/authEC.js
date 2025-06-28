@@ -17,16 +17,16 @@ export const protect = async (req, res, next) => {
     console.log("Decoded token:", decoded);
 
     const ecUser = await ECUser.findById(decoded.userId).select("-password");
-
     if (!ecUser) {
       return res.status(401).json({ error: "EC user not found" });
     }
 
-    req.ecUser = ecUser; // attach EC user to the request
-    req.schoolId = decoded.schoolId; // attach schoolId from token
+    req.ecUser = ecUser;
+    req.schoolId = decoded.schoolId;
 
     next();
   } catch (error) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 };
+

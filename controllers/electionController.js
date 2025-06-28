@@ -1,6 +1,7 @@
 import Election from "../models/Election.js";
 import School from "../models/school.js";
 import Voter from "../models/Voter.js";
+import Candidate from "../models/candidates.js";
 
 export const uploadVoters = async (req, res) => {
   const { voters } = req.body;
@@ -20,12 +21,17 @@ export const uploadVoters = async (req, res) => {
 
     await Voter.insertMany(votersWithMeta);
 
+    const count = await Voter.countDocuments({ schoolId });
+    console.log("🧾 Voters found for school:", schoolId, "→", count);
+
     res.status(201).json({ message: `${voters.length} voters uploaded` });
   } catch (err) {
     console.error("Upload voters error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
+
 
 
 export const startElection = async (req, res) => {
@@ -35,23 +41,26 @@ export const startElection = async (req, res) => {
     const school = await School.findById(schoolId).populate("ecMembers");
     if (!school) return res.status(404).json({ error: "School not found" });
 
-    // 1️⃣ Subscription check
     if (!school.subscriptionActive) {
       return res.status(403).json({ error: "Active subscription required" });
     }
 
-    // 2️⃣ EC count check
     if (school.ecMembers.length < 3) {
       return res.status(403).json({ error: "At least 3 EC members required" });
     }
 
-    // 3️⃣ Voter list check
     const voterCount = await Voter.countDocuments({ schoolId });
+    console.log("📌 Checking voters for schoolId:", schoolId);
+
     if (voterCount === 0) {
       return res.status(400).json({ error: "Upload voter database first" });
     }
 
-    // Create election
+    const candidateCount = await Candidate.countDocuments({ schoolId });
+    if (candidateCount === 0) {
+      return res.status(400).json({ error: "Upload candidates before starting election" });
+    }
+
     const now = new Date();
     const end = new Date(now.getTime() + durationHours * 3600 * 1000);
 
@@ -68,3 +77,4 @@ export const startElection = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+

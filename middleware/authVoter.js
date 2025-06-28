@@ -17,11 +17,14 @@ export const protectVoter = async (req, res, next) => {
     if (!voter) return res.status(401).json({ error: "Voter not found" });
 
     req.voter = voter;
+    req.schoolId = voter.schoolId; 
+
     next();
   } catch (err) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 };
+
 export const isVoterVerified = (req, res, next) => {
   if (!req.voter.isVerified) {
     return res.status(403).json({ error: "Voter not verified" });

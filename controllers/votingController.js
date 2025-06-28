@@ -3,7 +3,7 @@ import Election from "../models/Election.js";
 
 export const castVote = async (req, res) => {
   const { candidate } = req.body;
-  const voter = req.voter; // from protectVoter middleware
+  const voter = req.voter;
 
   try {
     if (!voter) return res.status(401).json({ error: "Unauthorized" });
@@ -21,15 +21,23 @@ export const castVote = async (req, res) => {
       return res.status(400).json({ error: "No active election found" });
     }
 
-    // Add vote (optionally include voterId to prevent double-voting at backend level)
+    // check if candidate exists in the current election
+    const isValidCandidate = election.candidates.includes(candidate);
+    if (!isValidCandidate) {
+      return res.status(400).json({ error: "Invalid candidate selected" });
+    }
+
+    // ✅ Record vote
     election.votes.push({ candidate, voterId: voter._id });
     await election.save();
 
+    // ✅ Update voter status
     voter.hasVoted = true;
     await voter.save();
 
     res.json({ message: "✅ Vote cast successfully" });
   } catch (err) {
+    console.error("❌ Vote Error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };

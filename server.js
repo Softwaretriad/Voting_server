@@ -17,7 +17,7 @@ app.use(express.json());
 app.use("/api/school", schoolRoutes);
 app.use("/api/ec", ecRoutes);
 app.use("/api/election", electionRoutes);
-app.use("/api/user", voterRoutes);
+app.use("/api/voter", voterRoutes);
  
 
 // MongoDB connection
