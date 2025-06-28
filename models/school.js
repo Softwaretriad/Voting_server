@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const SchoolSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },           // school admin
+  email: { type: String, required: true, unique: true },           
   plan: {
     type: String,
     enum: ["basic", "standard", "premium"],

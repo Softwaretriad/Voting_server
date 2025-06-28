@@ -77,36 +77,42 @@ export const verifyOtp = async (req, res) => {
 
 
 export const getUserDashboard = async (req, res) => {
-  // If you’re using protectVoter, prefer:  const voter = req.voter;
-  const { voterId } = req.params;
+  // Use req.voter if middleware was used, else fallback to params
+  const voter = req.voter || (await Voter.findById(req.params.voterId));
 
   try {
-    const voter = await Voter.findById(voterId);
     if (!voter) return res.status(404).json({ error: "Voter not found" });
 
     const election = await Election.findOne({
       schoolId: voter.schoolId,
       status: { $in: ["active", "ended"] },
     });
-    if (!election)
-      return res
-        .status(404)
-        .json({ error: "No election found for your school" });
+
+    if (!election) {
+      return res.status(404).json({ error: "No election found for your school" });
+    }
 
     const now = Date.now();
     const hasEnded = now > election.endTime;
+
+    const candidateData =
+      hasEnded
+        ? await Candidate.find({ schoolId: voter.schoolId }, "name position voteCount")
+        : election.candidates;
 
     res.json({
       electionTitle: election.title,
       endsAt: election.endTime,
       hasEnded,
-      hasVoted: voter.hasVoted,
-      voteStatus: voter.hasVoted ? "✅ Vote submitted" : "❌ Not yet voted",
-      canVote: !voter.hasVoted && !hasEnded,
-      candidates:
-        !voter.hasVoted && !hasEnded ? election.candidates : undefined,
+      voteStatus: voter.hasVotedPositions?.length
+        ? `✅ Voted for: ${voter.hasVotedPositions.join(", ")}`
+        : "❌ You haven't voted yet",
+      canVote: !hasEnded,
+      votedPositions: voter.hasVotedPositions || [],
+      candidates: candidateData,
     });
   } catch (err) {
+    console.error("Dashboard error:", err);
     res.status(500).json({ error: "Server error" });
   }
 };

@@ -3,6 +3,8 @@ import ECUser from "../models/ECUser.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import Candidate from "../models/candidates.js";
+import Election from "../models/Election.js";
+
 dotenv.config();
 
 /** Add EC member (≤ 5 per school) */
@@ -45,16 +47,19 @@ export const uploadCandidates = async (req, res) => {
       if (!c.name || !c.position) {
         return res.status(400).json({ error: "Each candidate must have a name and position" });
       }
-
-      await Candidate.create({ ...c, schoolId, title }); 
+      
+      await Candidate.create({
+        name: c.name.trim(),
+        position: c.position.trim(),
+        schoolId,
+        title
+      });
     }
 
     res.status(201).json({ message: `${candidates.length} candidates uploaded` });
   } catch (err) {
     console.error("Upload candidates error:", err);
     res.status(500).json({ error: err.message });
-    console.log("Uploading candidates for schoolId:", schoolId);
-
   }
 };
 

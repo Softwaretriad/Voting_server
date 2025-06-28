@@ -3,6 +3,7 @@ import School from "../models/school.js";
 import Voter from "../models/Voter.js";
 import Candidate from "../models/candidates.js";
 
+
 export const uploadVoters = async (req, res) => {
   const { voters } = req.body;
   const schoolId = req.schoolId;       
@@ -30,9 +31,7 @@ export const uploadVoters = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-
-
+ 
 
 export const startElection = async (req, res) => {
   const { schoolId, title, durationHours = 24 } = req.body;
@@ -50,14 +49,13 @@ export const startElection = async (req, res) => {
     }
 
     const voterCount = await Voter.countDocuments({ schoolId });
-    console.log("📌 Checking voters for schoolId:", schoolId);
-
     if (voterCount === 0) {
       return res.status(400).json({ error: "Upload voter database first" });
     }
 
-    const candidateCount = await Candidate.countDocuments({ schoolId });
-    if (candidateCount === 0) {
+    // ✅ Load candidates from Candidate model
+    const candidates = await Candidate.find({ schoolId, title });
+    if (candidates.length === 0) {
       return res.status(400).json({ error: "Upload candidates before starting election" });
     }
 
@@ -69,7 +67,8 @@ export const startElection = async (req, res) => {
       title,
       startTime: now,
       endTime: end,
-      status: "active"
+      status: "active",
+      candidates, 
     });
 
     res.json({ message: "Election started", electionId: election._id });
@@ -77,4 +76,5 @@ export const startElection = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 

@@ -9,7 +9,8 @@ const VoterSchema = new mongoose.Schema({
   hasVoted: { type: Boolean, default: false },
   otp: String,
   otpExpires: Date,
-  isVerified: { type: Boolean, default: false }
+  isVerified: { type: Boolean, default: false },
+  hasVotedPositions: { type: [String], default: [] }
 
 });
 
