@@ -14,6 +14,11 @@ export const registerEC = async (req, res) => {
       return res.status(409).json({ error: "Email already registered" });
     }
 
+    const alreadyInSchool = school.ecMembers.some(ec => ec.email === email);
+    if (alreadyInSchool) {
+      return res.status(400).json({ error: "EC already part of this school" });
+    }
+    
     const school = await School.findById(schoolId).populate("ecMembers");
     if (!school) {
       return res.status(404).json({ error: "School not found" });

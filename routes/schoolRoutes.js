@@ -4,7 +4,7 @@ import { createSchool, checkSubscription } from "../controllers/schoolController
 
 const router = express.Router();
 
-router.post("/register", createSchool);               // POST /api/school/register
-router.get("/subscription/:schoolId", checkSubscription); // GET /api/school/subscription/:schoolId
+router.post("/register", createSchool);               
+router.get("/subscription/:schoolId", checkSubscription); 
 
 export default router;
