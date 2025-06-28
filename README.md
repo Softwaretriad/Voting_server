@@ -1,4 +1,4 @@
-# 🗳️ Online Voting System API
+# 🗳️ Voting System API
 
 This is a RESTful API built with **Node.js**, **Express**, and **MongoDB** to power an online voting platform. It supports schools, election commission (EC) members, voters, candidates, and elections.
 
