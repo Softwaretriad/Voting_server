@@ -38,8 +38,8 @@ This is a RESTful API built with **Node.js**, **Express**, and **MongoDB** to po
 ### Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/voting-system-api.git
-cd voting-system-api
+git clone https://github.com/Softwaretriad/Voting_server
+cd Voting_server
 
 npm install
 
