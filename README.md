@@ -143,6 +143,31 @@ If PowerShell blocks `npm`, use:
 npm.cmd run dev
 ```
 
+## Using ngrok
+
+You can expose the local API over the internet for mobile-device testing with ngrok.
+
+Start the backend:
+
+```bash
+npm run dev
+```
+
+Start the tunnel in a second terminal:
+
+```bash
+ngrok http 5000
+```
+
+If your server is running on a different port, tunnel that port instead.
+
+Important notes:
+
+- Use the generated HTTPS ngrok URL as your frontend or Postman `baseUrl`
+- Add the ngrok origin to `ALLOWED_ORIGINS` in `.env` if CORS is restricted
+- Free ngrok URLs usually change when the tunnel restarts
+- Any callback URLs or links that must reach your local backend should use the current ngrok URL
+
 ## Demo Seed
 
 Seed demo records for local testing:
@@ -245,5 +270,4 @@ The codebase now covers:
 - admin election CRUD and scheduling 
 - security hardening for sensitive flows
 - runtime verification scripts
-
 
