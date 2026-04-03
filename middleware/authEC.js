@@ -14,7 +14,9 @@ export const protect = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log("Decoded token:", decoded);
+    if (decoded.role && decoded.role !== "admin") {
+      return res.status(401).json({ error: "Invalid token scope" });
+    }
 
     const ecUser = await ECUser.findById(decoded.userId).select("-password");
     if (!ecUser) {
@@ -29,4 +31,3 @@ export const protect = async (req, res, next) => {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 };
-

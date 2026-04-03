@@ -5,6 +5,8 @@ import dotenv from "dotenv";
 import Candidate from "../models/candidates.js";
 import Election from "../models/Election.js";
 import Voter from "../models/Voter.js";
+import { normalizeEmail } from "../utils/security.js";
+import { recordActivity } from "../utils/activityLog.js";
 
 dotenv.config();
 
@@ -12,12 +14,18 @@ dotenv.config();
 export const loginEC = async (req, res) => {
   const { email, password } = req.body;
   try {
-    const ec = await ECUser.findOne({ email }).populate("schoolId");
+    const ec = await ECUser.findOne({ email: normalizeEmail(email) }).populate("schoolId");
     if (!ec || !(await ec.matchPassword(password))) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
-    const token = jwt.sign({ userId: ec._id, schoolId: ec.schoolId._id }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ userId: ec._id, schoolId: ec.schoolId._id, role: "admin" }, process.env.JWT_SECRET, {
       expiresIn: "1d"
+    });
+    await recordActivity({
+      actorType: "admin",
+      actorId: ec._id,
+      schoolId: ec.schoolId._id,
+      action: "Admin Login Success",
     });
     res.json({ token, ecId: ec._id, schoolId: ec.schoolId._id });
   } catch (err) {
@@ -88,12 +96,13 @@ export const addECMember = async (req, res) => {
       return res.status(400).json({ error: "Maximum 5 EC members allowed" });
     }
 
-    const existing = await ECUser.findOne({ email });
+    const normalizedEmail = normalizeEmail(email);
+    const existing = await ECUser.findOne({ email: normalizedEmail });
     if (existing) {
       return res.status(409).json({ error: "Email already registered" });
     }
 
-    const ec = await ECUser.create({ name, email, password, schoolId });
+    const ec = await ECUser.create({ name, email: normalizedEmail, password, schoolId });
     school.ecMembers.push(ec._id);
     await school.save();
 

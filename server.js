@@ -5,31 +5,55 @@ import schoolRoutes from "./routes/schoolRoutes.js";
 import ecRoutes from "./routes/ecRoutes.js";
 import electionRoutes from "./routes/electionRoutes.js";
 import voterRoutes from "./routes/voterRoutes.js";
-
-
+import authRoutes from "./routes/authRoutes.js";
+import studentRoutes from "./routes/studentRoutes.js";
+import studentElectionRoutes from "./routes/studentElectionRoutes.js";
+import categoryRoutes from "./routes/categoryRoutes.js";
+import voteRoutes from "./routes/voteRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+import newsRoutes from "./routes/newsRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import { corsMiddleware, securityHeaders } from "./middleware/security.js";
+import {
+  processElectionResults,
+  startElectionResultsProcessor,
+} from "./utils/electionResultsProcessor.js";
 
 dotenv.config();
 
 const app = express();
+app.disable("x-powered-by");
+app.use(securityHeaders);
+app.use(corsMiddleware);
 app.use(express.json());
 
-// Routes
 app.use("/api/school", schoolRoutes);
 app.use("/api/ec", ecRoutes);
 app.use("/api/election", electionRoutes);
 app.use("/api/voter", voterRoutes);
- 
 
-// MongoDB connection
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch(err => console.error("MongoDB error:", err));
+app.use("/auth", authRoutes);
+app.use("/schools", schoolRoutes);
+app.use("/students", studentRoutes);
+app.use("/elections", studentElectionRoutes);
+app.use("/categories", categoryRoutes);
+app.use("/votes", voteRoutes);
+app.use("/notifications", notificationRoutes);
+app.use("/news", newsRoutes);
+app.use("/admin", adminRoutes);
 
-// Catch-all for undefined routes
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(async () => {
+    console.log("MongoDB connected");
+    await processElectionResults();
+    startElectionResultsProcessor();
+  })
+  .catch((err) => console.error("MongoDB error:", err));
+
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
-// Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

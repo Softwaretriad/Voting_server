@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "seed:demo": "node scripts/seedStudentAppDemo.js",
+    "test:runtime": "node scripts/runtimeTestStudentApi.js",
+    "test:v6": "node scripts/testV6Additions.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

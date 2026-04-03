@@ -1,0 +1,65 @@
+import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
+import { hashSecret, isHashedValue } from "../utils/security.js";
+
+const StudentSchema = new mongoose.Schema(
+  {
+    studentId: { type: String, required: true, trim: true },
+    firstName: { type: String, required: true, trim: true },
+    lastName: { type: String, required: true, trim: true },
+    gender: {
+      type: String,
+      enum: ["male", "female"],
+      required: true,
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
+    password: { type: String, required: true },
+    phone: { type: String, required: true, trim: true },
+    schoolId: { type: mongoose.Schema.Types.ObjectId, ref: "School", default: null },
+    universityFullName: { type: String, required: true, trim: true },
+    department: { type: String, required: true, trim: true },
+    currentYearOfStudy: { type: Number, required: true, min: 1 },
+    programOfStudy: { type: String, required: true, trim: true },
+    votingPin: { type: String, required: true },
+    isEmailVerified: { type: Boolean, default: false },
+    emailVerificationOtp: { type: String, default: null },
+    emailVerificationOtpExpires: { type: Date, default: null },
+    passwordResetOtp: { type: String, default: null },
+    passwordResetOtpExpires: { type: Date, default: null },
+    votingPinResetOtp: { type: String, default: null },
+    votingPinResetOtpExpires: { type: Date, default: null },
+    votingPinResetTokenHash: { type: String, default: null },
+    votingPinResetTokenExpires: { type: Date, default: null },
+    refreshToken: { type: String, default: null },
+    passwordResetTokenHash: { type: String, default: null },
+    passwordResetTokenExpires: { type: Date, default: null },
+    votingPinAttempts: { type: Number, default: 0 },
+    votingPinLockedUntil: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+
+StudentSchema.pre("save", async function preSave(next) {
+  if (!this.isModified("password")) return next();
+  this.password = await bcrypt.hash(this.password, 10);
+  next();
+});
+
+StudentSchema.pre("save", async function preSaveVotingPin(next) {
+  if (!this.isModified("votingPin")) return next();
+  if (isHashedValue(this.votingPin)) return next();
+  this.votingPin = await hashSecret(this.votingPin);
+  next();
+});
+
+StudentSchema.methods.matchPassword = function matchPassword(plainText) {
+  return bcrypt.compare(plainText, this.password);
+};
+
+export default mongoose.model("Student", StudentSchema);

@@ -1,27 +1,34 @@
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+
 dotenv.config();
 
 const transporter = nodemailer.createTransport({
-  service: "gmail", // or use smtp: { host, port, secure, auth }
+  service: "gmail",
   auth: {
-    user: process.env.EMAIL_USER, // your email
-    pass: process.env.EMAIL_PASS, // app password (not your real Gmail password)
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
 });
 
-const sendEmail = async (to, content) => {
+const sendEmail = async (to, subjectOrContent, maybeText, maybeOptions = {}) => {
+  const subject = maybeText ? subjectOrContent : "Your Voting OTP";
+  const text = maybeText ?? subjectOrContent;
+  const options =
+    maybeText && typeof maybeOptions === "object" ? maybeOptions : {};
+
   try {
     await transporter.sendMail({
       from: `"Voting System" <${process.env.EMAIL_USER}>`,
       to,
-      subject: "Your Voting OTP",
-      text: content,
+      subject,
+      text,
+      attachments: options.attachments || [],
     });
-    console.log(`✅ Email sent to ${to}`);
+    console.log("Email dispatched");
   } catch (error) {
-    console.error("❌ Error sending email:", error.message);
-    throw new Error("Failed to send OTP email");
+    console.error("Error sending email:", error.message);
+    throw new Error("Failed to send email");
   }
 };
 
