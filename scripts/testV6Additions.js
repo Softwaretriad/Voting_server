@@ -72,6 +72,7 @@ const run = async () => {
   const faculty = school.faculties[0];
   const programme = faculty.programmes[0];
   const studentEmail = `v6-student-${stamp}@example.com`;
+  const studentPassword = "Password@123";
   const emailOtp = "123456";
   const votingPinOtp = "654321";
 
@@ -83,7 +84,7 @@ const run = async () => {
       lastName: "Tester",
       gender: "male",
       email: studentEmail,
-      password: "password123",
+      password: studentPassword,
       phone: "+233240000999",
       universityFullName: school.fullName || school.name,
       department: faculty.name,

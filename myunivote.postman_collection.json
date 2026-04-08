@@ -51,7 +51,7 @@
     },
     {
       "key": "studentPassword",
-      "value": "password123"
+      "value": "Password@123"
     },
     {
       "key": "studentVotingPin",
@@ -204,7 +204,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"studentId\": \"UG-10001\",\n  \"firstName\": \"David\",\n  \"lastName\": \"Mensah\",\n  \"gender\": \"male\",\n  \"email\": \"your-new-email@example.com\",\n  \"password\": \"password123\",\n  \"phone\": \"+233240000000\",\n  \"universityFullName\": \"University of Ghana\",\n  \"department\": \"Faculty of Engineering\",\n  \"currentYearOfStudy\": 3,\n  \"programOfStudy\": \"BSc Computer Science\",\n  \"votingPin\": 1234\n}"
+              "raw": "{\n  \"studentId\": \"UG-10001\",\n  \"firstName\": \"David\",\n  \"lastName\": \"Mensah\",\n  \"gender\": \"male\",\n  \"email\": \"your-new-email@example.com\",\n  \"password\": \"Password@123\",\n  \"phone\": \"+233240000000\",\n  \"universityFullName\": \"University of Ghana\",\n  \"department\": \"Faculty of Engineering\",\n  \"currentYearOfStudy\": 3,\n  \"programOfStudy\": \"BSc Computer Science\",\n  \"votingPin\": 1234\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/register",
@@ -264,6 +264,36 @@
               }
             }
           ]
+        },
+        {
+          "name": "Resend Verification OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/resend-verification-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "resend-verification-otp"
+              ]
+            }
+          }
         },
         {
           "name": "Login Student",
@@ -418,7 +448,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"resetToken\": \"\",\n  \"newPassword\": \"password123\"\n}"
+              "raw": "{\n  \"resetToken\": \"\",\n  \"newPassword\": \"Password@123\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/reset-password",

@@ -23,3 +23,11 @@ export const normalizeEmail = (value) => value?.toLowerCase?.().trim?.() || "";
 
 export const isFourDigitPin = (value) =>
   /^\d{4}$/.test(String(value ?? ""));
+
+export const isStrongPassword = (value) =>
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(
+    String(value ?? "")
+  );
+
+export const strongPasswordMessage =
+  "Password must be at least 8 characters and include uppercase, lowercase, number, and special character";

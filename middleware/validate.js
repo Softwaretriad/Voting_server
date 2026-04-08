@@ -1,5 +1,10 @@
 import { sendError } from "../utils/apiResponse.js";
-import { isFourDigitPin, normalizeEmail } from "../utils/security.js";
+import {
+  isFourDigitPin,
+  isStrongPassword,
+  normalizeEmail,
+  strongPasswordMessage,
+} from "../utils/security.js";
 
 export const validate = (validator) => (req, res, next) => {
   const message = validator(req);
@@ -28,8 +33,8 @@ export const validators = {
     ) {
       return "All required registration fields must be provided";
     }
-    if (String(body.password).length < 6) {
-      return "Password must be at least 6 characters";
+    if (!isStrongPassword(body.password)) {
+      return strongPasswordMessage;
     }
     if (!isFourDigitPin(body.votingPin)) {
       return "Voting PIN must be a 4-digit integer";
@@ -46,12 +51,14 @@ export const validators = {
       : "email and otp are required",
   forgotPassword: (req) =>
     normalizeEmail(req.body?.email) ? null : "email is required",
+  resendVerificationOtp: (req) =>
+    normalizeEmail(req.body?.email) ? null : "email is required",
   resetPassword: (req) => {
     if (!req.body?.resetToken || !req.body?.newPassword) {
       return "resetToken and newPassword are required";
     }
-    if (String(req.body.newPassword).length < 6) {
-      return "New password must be at least 6 characters";
+    if (!isStrongPassword(req.body.newPassword)) {
+      return strongPasswordMessage;
     }
     return null;
   },

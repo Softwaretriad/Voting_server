@@ -64,8 +64,8 @@ const run = async () => {
   const faculty = school.faculties.find((item) => item.programmes.length > 0);
   const programme = faculty.programmes[0];
   const email = `runtime-${uniqueSuffix}@example.com`;
-  const initialPassword = "password123";
-  const newPassword = "newpassword123";
+  const initialPassword = "Password@123";
+  const newPassword = "NewPassword@123";
   const emailOtp = "123456";
   const passwordResetOtp = "654321";
 
@@ -102,6 +102,16 @@ const run = async () => {
     }),
   });
   assertStatus(registerResult, 201, "POST /auth/register");
+
+  const resendVerificationOtpResult = await request("/auth/resend-verification-otp", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  assertStatus(
+    resendVerificationOtpResult,
+    200,
+    "POST /auth/resend-verification-otp"
+  );
 
   const registeredStudent = await Student.findOne({ email });
   registeredStudent.emailVerificationOtp = await hashSecret(emailOtp);
@@ -243,6 +253,99 @@ const run = async () => {
   });
   assertStatus(resultsResult, 200, "GET /elections/results");
 
+  const categoryVoteElection = await Election.create({
+    schoolId: school._id,
+    title: `Category Vote Election ${uniqueSuffix}`,
+    description: "Runtime test for per-category vote locking",
+    subTitle: school.shortName || "",
+    imageUrl: "",
+    startTime: new Date(Date.now() - 30 * 60 * 1000),
+    endTime: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    status: "active",
+    categories: [
+      { title: "President", subTitle: school.shortName || "" },
+      { title: "Secretary", subTitle: school.shortName || "" },
+    ],
+  });
+
+  const [presidentCategory, secretaryCategory] = categoryVoteElection.categories;
+
+  const [presidentA, presidentB, secretaryA] = await Candidate.insertMany([
+    {
+      name: "President Candidate A",
+      position: "President",
+      schoolId: school._id,
+      electionId: categoryVoteElection._id,
+      categoryId: presidentCategory._id,
+      department: faculty.name,
+      imageUrl: "",
+      title: categoryVoteElection.title,
+      voteCount: 0,
+    },
+    {
+      name: "President Candidate B",
+      position: "President",
+      schoolId: school._id,
+      electionId: categoryVoteElection._id,
+      categoryId: presidentCategory._id,
+      department: faculty.name,
+      imageUrl: "",
+      title: categoryVoteElection.title,
+      voteCount: 0,
+    },
+    {
+      name: "Secretary Candidate A",
+      position: "Secretary",
+      schoolId: school._id,
+      electionId: categoryVoteElection._id,
+      categoryId: secretaryCategory._id,
+      department: faculty.name,
+      imageUrl: "",
+      title: categoryVoteElection.title,
+      voteCount: 0,
+    },
+  ]);
+
+  const firstCategoryVoteResult = await request("/votes/cast", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      studentId: userId,
+      electionId: categoryVoteElection._id,
+      aspirantId: presidentA._id,
+      votingPin: 1234,
+    }),
+  });
+  assertStatus(firstCategoryVoteResult, 201, "POST /votes/cast first category vote");
+
+  const secondCategoryVoteResult = await request("/votes/cast", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      studentId: userId,
+      electionId: categoryVoteElection._id,
+      aspirantId: secretaryA._id,
+      votingPin: 1234,
+    }),
+  });
+  assertStatus(secondCategoryVoteResult, 201, "POST /votes/cast second category vote");
+
+  const duplicateCategoryVoteResult = await request("/votes/cast", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      studentId: userId,
+      electionId: categoryVoteElection._id,
+      aspirantId: presidentB._id,
+      votingPin: 1234,
+    }),
+  });
+  assertStatus(
+    duplicateCategoryVoteResult,
+    409,
+    "POST /votes/cast duplicate category vote"
+  );
+
   const forgotPasswordResult = await request("/auth/forgot-password", {
     method: "POST",
     body: JSON.stringify({ email }),
@@ -328,6 +431,7 @@ const run = async () => {
           "GET /schools/:schoolId/faculties",
           "GET /schools/:schoolId/faculties/:facultyId/programmes",
           "POST /auth/register",
+          "POST /auth/resend-verification-otp",
           "POST /auth/verify-email",
           "GET /students/:userId",
           "GET /elections/active",
@@ -339,6 +443,8 @@ const run = async () => {
           "GET /elections/:electionId/aspirants",
           "POST /votes/verify-pin",
           "POST /votes/cast",
+          "POST /votes/cast second category vote allowed",
+          "POST /votes/cast duplicate category vote blocked",
           "GET /categories/:categoryId/results",
           "GET /elections/results",
           "POST /auth/forgot-password",

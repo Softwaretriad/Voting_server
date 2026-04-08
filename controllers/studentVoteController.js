@@ -103,14 +103,25 @@ export const castStudentVote = async (req, res) => {
       return sendError(res, 404, "Aspirant not found");
     }
 
-    const alreadyVoted = election.votes.some(
-      (vote) =>
-        vote.studentId?.toString() === studentId &&
-        vote.electionId?.toString() === electionId
-    );
+    const aspirantCategoryId = aspirant.categoryId?.toString();
+    const alreadyVoted = election.votes.some((vote) => {
+      if (vote.studentId?.toString() !== studentId) {
+        return false;
+      }
+
+      if (vote.electionId?.toString() !== electionId) {
+        return false;
+      }
+
+      return vote.categoryId?.toString() === aspirantCategoryId;
+    });
 
     if (alreadyVoted) {
-      return sendError(res, 409, "You have already cast your vote for this election.");
+      return sendError(
+        res,
+        409,
+        "You have already cast your vote for this category."
+      );
     }
 
     aspirant.voteCount = (aspirant.voteCount || 0) + 1;

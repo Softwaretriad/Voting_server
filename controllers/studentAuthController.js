@@ -15,7 +15,9 @@ import {
   createOpaqueToken,
   hashSecret,
   isFourDigitPin,
+  isStrongPassword,
   normalizeEmail,
+  strongPasswordMessage,
 } from "../utils/security.js";
 import { recordActivity } from "../utils/activityLog.js";
 
@@ -108,8 +110,8 @@ export const registerStudent = async (req, res) => {
       return sendError(res, 400, "All required registration fields must be provided");
     }
 
-    if (password.length < 6) {
-      return sendError(res, 400, "Password must be at least 6 characters");
+    if (!isStrongPassword(password)) {
+      return sendError(res, 400, strongPasswordMessage);
     }
 
     if (!isFourDigitPin(votingPin)) {
@@ -206,6 +208,29 @@ export const verifyEmail = async (req, res) => {
   }
 };
 
+export const resendVerificationOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const student = await Student.findOne({ email: normalizeEmail(email) });
+
+    if (!student || student.isEmailVerified) {
+      return res.status(200).json({});
+    }
+
+    await sendVerificationOtp(student);
+    await recordActivity({
+      actorType: "student",
+      actorId: student._id,
+      schoolId: student.schoolId,
+      action: "Student Verification OTP Resent",
+    });
+
+    return res.status(200).json({});
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to resend verification OTP");
+  }
+};
+
 export const loginStudent = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -216,11 +241,10 @@ export const loginStudent = async (req, res) => {
     }
 
     if (!student.isEmailVerified) {
-      await sendVerificationOtp(student);
       return sendError(
         res,
         403,
-        "Email not verified. A new verification code has been sent."
+        "Email not verified. Please request a new verification code."
       );
     }
 
@@ -385,8 +409,8 @@ export const resetPassword = async (req, res) => {
       return sendError(res, 400, "resetToken and newPassword are required");
     }
 
-    if (newPassword.length < 6) {
-      return sendError(res, 400, "New password must be at least 6 characters");
+    if (!isStrongPassword(newPassword)) {
+      return sendError(res, 400, strongPasswordMessage);
     }
 
     const candidates = await Student.find({

@@ -5,6 +5,7 @@ import {
   loginStudent,
   logoutStudent,
   registerStudent,
+  resendVerificationOtp,
   resetPassword,
   verifyEmail,
   verifyResetOtp,
@@ -20,6 +21,16 @@ router.post(
   createRateLimiter({ key: "verify-email", windowMs: 10 * 60 * 1000, max: 10 }),
   validate(validators.verifyEmailOtp),
   verifyEmail
+);
+router.post(
+  "/resend-verification-otp",
+  createRateLimiter({
+    key: "resend-verification-otp",
+    windowMs: 10 * 60 * 1000,
+    max: 5,
+  }),
+  validate(validators.resendVerificationOtp),
+  resendVerificationOtp
 );
 router.post(
   "/login",
