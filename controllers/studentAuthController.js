@@ -1,6 +1,7 @@
 import ECUser from "../models/ECUser.js";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
+import jwt from "jsonwebtoken";
 import sendEmail from "../utils/sendEmail.js";
 import { sendError, sanitizeStudent } from "../utils/apiResponse.js";
 import {
@@ -45,6 +46,30 @@ const issueSession = async (student) => {
     accessToken,
     refreshToken,
     user: sanitizeStudent(student),
+  };
+};
+
+const issueAdminSession = async (admin) => {
+  const token = jwt.sign(
+    {
+      userId: admin._id,
+      schoolId: admin.schoolId,
+      role: "admin",
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "1d" }
+  );
+
+  return {
+    token,
+    accessToken: token,
+    role: "admin",
+    user: {
+      id: admin._id,
+      name: admin.name,
+      email: admin.email,
+      schoolId: admin.schoolId,
+    },
   };
 };
 
@@ -234,28 +259,54 @@ export const resendVerificationOtp = async (req, res) => {
 export const loginStudent = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const student = await Student.findOne({ email: normalizeEmail(email) });
+    const normalizedEmail = normalizeEmail(email);
+    const [student, admin] = await Promise.all([
+      Student.findOne({ email: normalizedEmail }),
+      ECUser.findOne({ email: normalizedEmail }),
+    ]);
 
-    if (!student || !(await student.matchPassword(password || ""))) {
-      return sendError(res, 401, "Invalid email or password");
+    const studentPasswordMatches = student
+      ? await student.matchPassword(password || "")
+      : false;
+
+    if (studentPasswordMatches) {
+      if (!student.isEmailVerified) {
+        return sendError(
+          res,
+          403,
+          "Email not verified. Please request a new verification code."
+        );
+      }
+
+      const session = await issueSession(student);
+      await recordActivity({
+        actorType: "student",
+        actorId: student._id,
+        schoolId: student.schoolId,
+        action: "Student Login Success",
+      });
+      return res.status(200).json({
+        ...session,
+        role: "student",
+      });
     }
 
-    if (!student.isEmailVerified) {
-      return sendError(
-        res,
-        403,
-        "Email not verified. Please request a new verification code."
-      );
+    const adminPasswordMatches = admin
+      ? await admin.matchPassword(password || "")
+      : false;
+
+    if (adminPasswordMatches) {
+      const session = await issueAdminSession(admin);
+      await recordActivity({
+        actorType: "admin",
+        actorId: admin._id,
+        schoolId: admin.schoolId,
+        action: "Admin Login Success",
+      });
+      return res.status(200).json(session);
     }
 
-    const session = await issueSession(student);
-    await recordActivity({
-      actorType: "student",
-      actorId: student._id,
-      schoolId: student.schoolId,
-      action: "Student Login Success",
-    });
-    return res.status(200).json(session);
+    return sendError(res, 401, "Invalid email or password");
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to login");
   }

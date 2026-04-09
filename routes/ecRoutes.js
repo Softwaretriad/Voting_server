@@ -1,6 +1,6 @@
 import express from "express";
 import {  registerEC } from "../controllers/authController.js";
-import { loginEC, addECMember, listECMembers,  ecDashboard,   removeECMember,
+import { addECMember, listECMembers,  ecDashboard,   removeECMember,
   getCandidates } from "../controllers/ecController.js";
 import { protect } from "../middleware/authEC.js";
 
@@ -8,7 +8,6 @@ import { protect } from "../middleware/authEC.js";
 const router = express.Router();
 
 router.post("/register", registerEC);
-router.post("/login", loginEC);
 
 // ecRoutes.js
 router.post("/add-member", protect, addECMember);

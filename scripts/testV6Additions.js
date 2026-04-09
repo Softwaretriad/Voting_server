@@ -60,7 +60,7 @@ const run = async () => {
     admin = await ECUser.create({
       name: "Admin V6",
       email: "admin-v6@example.com",
-      password: "password123",
+      password: "Password@123",
       schoolId: school._id,
       plan: "premium",
     });
@@ -143,14 +143,14 @@ const run = async () => {
   });
   assertStatus(resetPinResult, 200, "POST /votes/pin/reset");
 
-  const loginAdminResult = await request("/api/ec/login", {
+  const loginAdminResult = await request("/auth/login", {
     method: "POST",
     body: JSON.stringify({
       email: "admin-v6@example.com",
-      password: "password123",
+      password: "Password@123",
     }),
   });
-  assertStatus(loginAdminResult, 200, "POST /api/ec/login");
+  assertStatus(loginAdminResult, 200, "POST /auth/login admin");
   const adminToken = loginAdminResult.body.token;
 
   const adminHeaders = {
@@ -224,6 +224,7 @@ const run = async () => {
           "POST /votes/pin/forgot",
           "POST /votes/pin/verify-otp",
           "POST /votes/pin/reset",
+          "POST /auth/login admin",
           "GET /admin/elections?status=draft",
           "POST /admin/elections",
           "PUT /admin/elections/:electionId",

@@ -56,17 +56,21 @@
     {
       "key": "studentVotingPin",
       "value": "1234"
-    },
+    }, 
     {
       "key": "adminEmail",
-      "value": "admin-v6@example.com"
+      "value": "10920528@wiuc-ghana.edu.gh"
     },
-    {
+    { 
       "key": "adminPassword",
-      "value": "password123"
+      "value": "Admin@10920528"
     },
     {
       "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "adminUserId",
       "value": ""
     },
     {
@@ -1048,13 +1052,12 @@
               "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/api/ec/login",
+              "raw": "{{baseUrl}}/auth/login",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "api",
-                "ec",
+                "auth",
                 "login"
               ]
             }
@@ -1069,8 +1072,13 @@
                   "  pm.response.to.have.status(200);",
                   "});",
                   "const data = pm.response.json();",
-                  "if (data.token) pm.collectionVariables.set('adminToken', data.token);",
-                  "if (data.schoolId) pm.collectionVariables.set('schoolId', data.schoolId);"
+                  "const adminToken = data.token || data.accessToken || '';",
+                  "if (adminToken) pm.collectionVariables.set('adminToken', adminToken);",
+                  "if (data.user && data.user.id) pm.collectionVariables.set('adminUserId', data.user.id);",
+                  "if (data.user && data.user.schoolId) pm.collectionVariables.set('schoolId', data.user.schoolId);",
+                  "pm.test('Response is admin login', function () {",
+                  "  pm.expect(data.role).to.eql('admin');",
+                  "});"
                 ]
               }
             }
