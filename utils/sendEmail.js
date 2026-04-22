@@ -3,13 +3,36 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
+const smtpPort = Number(process.env.SMTP_PORT || 465);
+const smtpSecure =
+  process.env.SMTP_SECURE != null
+    ? String(process.env.SMTP_SECURE).toLowerCase() === "true"
+    : smtpPort === 465;
+
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: smtpHost,
+  port: smtpPort,
+  secure: smtpSecure,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  tls: {
+    minVersion: "TLSv1.2",
+  },
 });
+
+export const verifyEmailTransport = async () => {
+  try {
+    await transporter.verify();
+    console.log(`Email transport ready (${smtpHost}:${smtpPort})`);
+    return true;
+  } catch (error) {
+    console.error("Email transport verification failed:", error.message);
+    return false;
+  }
+};
 
 const sendEmail = async (to, subjectOrContent, maybeText, maybeOptions = {}) => {
   const subject = maybeText ? subjectOrContent : "Your Voting OTP";

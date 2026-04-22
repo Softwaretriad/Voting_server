@@ -1,4 +1,4 @@
-import Candidate from "../models/candidates.js";
+import Aspirant from "../models/Aspirant.js";
 import Election from "../models/Election.js";
 import Student from "../models/Student.js";
 import { sendError } from "../utils/apiResponse.js";
@@ -16,6 +16,31 @@ const toElectionCard = (election) => ({
   subTitle: election.subTitle || "",
   imageUrl: election.imageUrl || "",
 });
+
+export const getElectionById = async (req, res) => {
+  try {
+    const { electionId } = req.params;
+    const schoolId = getStudentSchoolId(req.student);
+    const election = await Election.findById(electionId);
+
+    if (!election) {
+      return sendError(res, 404, "Election not found");
+    }
+
+    if (schoolId && election.schoolId?.toString() !== schoolId) {
+      return sendError(res, 403, "You are not allowed to access this election");
+    }
+
+    return res.status(200).json({
+      ...toElectionCard(election),
+      categories: (election.categories || []).map((category) => category.title),
+      eligibleVoters: election.eligibleVoters?.length || 0,
+      votesCast: election.votes?.length || 0,
+    });
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to load election");
+  }
+};
 
 export const getActiveElections = async (req, res) => {
   try {
@@ -151,15 +176,15 @@ export const getElectionCategories = async (req, res) => {
     }));
 
     if (categories.length === 0) {
-      const aspirants = await Candidate.find({ electionId: election._id });
+      const aspirants = await Aspirant.find({ electionId: election._id });
       categories = Array.from(
         new Map(
           aspirants.map((aspirant) => [
-            aspirant.categoryId?.toString() || aspirant.position,
+            aspirant.categoryId?.toString() || aspirant.electoralCategory,
             {
-              _id: aspirant.categoryId?.toString() || aspirant.position,
+              _id: aspirant.categoryId?.toString() || aspirant.electoralCategory,
               electionId: election._id.toString(),
-              title: aspirant.position,
+              title: aspirant.electoralCategory,
               subTitle: election.subTitle || "",
               imageUrl: "",
             },
@@ -178,7 +203,7 @@ export const getAspirantsForElection = async (req, res) => {
   try {
     const { electionId } = req.params;
     const schoolId = getStudentSchoolId(req.student);
-    const aspirants = await Candidate.find({
+    const aspirants = await Aspirant.find({
       electionId,
       ...(schoolId ? { schoolId } : {}),
     }).sort({ name: 1 });
@@ -188,7 +213,12 @@ export const getAspirantsForElection = async (req, res) => {
         _id: aspirant._id.toString(),
         electionId: aspirant.electionId?.toString() || electionId,
         name: aspirant.name,
-        department: aspirant.department || "",
+        studentId: aspirant.studentId || "",
+        programmeOfStudy: aspirant.programmeOfStudy || "",
+        level: aspirant.level || "",
+        faculty: aspirant.faculty || "",
+        electoralCategory: aspirant.electoralCategory || "",
+        department: aspirant.faculty || "",
         imageUrl: aspirant.imageUrl || "",
       }))
     );
@@ -201,17 +231,22 @@ export const getCategoryResults = async (req, res) => {
   try {
     const { categoryId } = req.params;
     const schoolId = getStudentSchoolId(req.student);
-    const aspirants = await Candidate.find({
+    const aspirants = await Aspirant.find({
       ...(schoolId ? { schoolId } : {}),
-      $or: [{ categoryId }, { position: categoryId }],
+      $or: [{ categoryId }, { electoralCategory: categoryId }],
     }).sort({ voteCount: -1, name: 1 });
 
     return res.status(200).json(
       aspirants.map((aspirant) => ({
         _id: aspirant._id.toString(),
-        categoryId: aspirant.categoryId?.toString() || aspirant.position,
+        categoryId: aspirant.categoryId?.toString() || aspirant.electoralCategory,
         name: aspirant.name,
-        department: aspirant.department || "",
+        studentId: aspirant.studentId || "",
+        programmeOfStudy: aspirant.programmeOfStudy || "",
+        level: aspirant.level || "",
+        faculty: aspirant.faculty || "",
+        electoralCategory: aspirant.electoralCategory || "",
+        department: aspirant.faculty || "",
         voteCount: aspirant.voteCount || 0,
         imageUrl: aspirant.imageUrl || "",
       }))

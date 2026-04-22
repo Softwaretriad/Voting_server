@@ -157,6 +157,11 @@ const run = async () => {
     Authorization: `Bearer ${adminToken}`,
   };
 
+  const dashboardResult = await request(`/admin/dashboard/${school._id}`, {
+    headers: adminHeaders,
+  });
+  assertStatus(dashboardResult, 200, "GET /admin/dashboard/:schoolId");
+
   const createElectionResult = await request("/admin/elections", {
     method: "POST",
     headers: adminHeaders,
@@ -197,6 +202,25 @@ const run = async () => {
   });
   assertStatus(getScheduledResult, 200, "GET /admin/elections?status=scheduled");
 
+  const reportsResult = await request(`/admin/reports/${school._id}`, {
+    headers: adminHeaders,
+  });
+  assertStatus(reportsResult, 200, "GET /admin/reports/:schoolId");
+
+  const detailedReportResult = await request(`/admin/reports/elections/${electionId}`, {
+    headers: adminHeaders,
+  });
+  assertStatus(
+    detailedReportResult,
+    200,
+    "GET /admin/reports/elections/:electionId"
+  );
+
+  const activityResult = await request(`/admin/activity/${school._id}`, {
+    headers: adminHeaders,
+  });
+  assertStatus(activityResult, 200, "GET /admin/activity/:schoolId");
+
   const createDeleteCandidate = await request("/admin/elections", {
     method: "POST",
     headers: adminHeaders,
@@ -225,11 +249,15 @@ const run = async () => {
           "POST /votes/pin/verify-otp",
           "POST /votes/pin/reset",
           "POST /auth/login admin",
+          "GET /admin/dashboard/:schoolId",
           "GET /admin/elections?status=draft",
           "POST /admin/elections",
           "PUT /admin/elections/:electionId",
           "PATCH /admin/elections/:electionId/schedule",
           "GET /admin/elections?status=scheduled",
+          "GET /admin/reports/:schoolId",
+          "GET /admin/reports/elections/:electionId",
+          "GET /admin/activity/:schoolId",
           "DELETE /admin/elections/:electionId",
         ],
       },

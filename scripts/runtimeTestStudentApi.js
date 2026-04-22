@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
 import Election from "../models/Election.js";
-import Candidate from "../models/candidates.js";
+import Aspirant from "../models/Aspirant.js";
 import { processElectionResults } from "../utils/electionResultsProcessor.js";
 import { hashSecret } from "../utils/security.js";
 
@@ -178,25 +178,31 @@ const run = async () => {
       categories: [{ title: "SRC President", subTitle: school.shortName || "" }],
     });
 
-    await Candidate.insertMany([
+    await Aspirant.insertMany([
       {
         name: "Runtime Candidate A",
-        position: "SRC President",
+        studentId: `RTA-${uniqueSuffix}`,
+        programmeOfStudy: programme.name,
+        level: "300",
+        faculty: faculty.name,
+        electoralCategory: "SRC President",
         schoolId: school._id,
         electionId: fallbackElection._id,
         categoryId: fallbackElection.categories[0]._id,
-        department: faculty.name,
         imageUrl: "",
         title: fallbackElection.title,
         voteCount: 0,
       },
       {
         name: "Runtime Candidate B",
-        position: "SRC President",
+        studentId: `RTB-${uniqueSuffix}`,
+        programmeOfStudy: programme.name,
+        level: "300",
+        faculty: faculty.name,
+        electoralCategory: "SRC President",
         schoolId: school._id,
         electionId: fallbackElection._id,
         categoryId: fallbackElection.categories[0]._id,
-        department: faculty.name,
         imageUrl: "",
         title: fallbackElection.title,
         voteCount: 0,
@@ -270,36 +276,45 @@ const run = async () => {
 
   const [presidentCategory, secretaryCategory] = categoryVoteElection.categories;
 
-  const [presidentA, presidentB, secretaryA] = await Candidate.insertMany([
+  const [presidentA, presidentB, secretaryA] = await Aspirant.insertMany([
     {
       name: "President Candidate A",
-      position: "President",
+      studentId: `PCA-${uniqueSuffix}`,
+      programmeOfStudy: programme.name,
+      level: "300",
+      faculty: faculty.name,
+      electoralCategory: "President",
       schoolId: school._id,
       electionId: categoryVoteElection._id,
       categoryId: presidentCategory._id,
-      department: faculty.name,
       imageUrl: "",
       title: categoryVoteElection.title,
       voteCount: 0,
     },
     {
       name: "President Candidate B",
-      position: "President",
+      studentId: `PCB-${uniqueSuffix}`,
+      programmeOfStudy: programme.name,
+      level: "300",
+      faculty: faculty.name,
+      electoralCategory: "President",
       schoolId: school._id,
       electionId: categoryVoteElection._id,
       categoryId: presidentCategory._id,
-      department: faculty.name,
       imageUrl: "",
       title: categoryVoteElection.title,
       voteCount: 0,
     },
     {
       name: "Secretary Candidate A",
-      position: "Secretary",
+      studentId: `SCA-${uniqueSuffix}`,
+      programmeOfStudy: programme.name,
+      level: "300",
+      faculty: faculty.name,
+      electoralCategory: "Secretary",
       schoolId: school._id,
       electionId: categoryVoteElection._id,
       categoryId: secretaryCategory._id,
-      department: faculty.name,
       imageUrl: "",
       title: categoryVoteElection.title,
       voteCount: 0,

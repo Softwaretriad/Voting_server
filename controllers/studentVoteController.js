@@ -1,4 +1,4 @@
-import Candidate from "../models/candidates.js";
+import Aspirant from "../models/Aspirant.js";
 import Election from "../models/Election.js";
 import Student from "../models/Student.js";
 import { sendError } from "../utils/apiResponse.js";
@@ -94,7 +94,7 @@ export const castStudentVote = async (req, res) => {
       return sendError(res, 403, "Election is not active");
     }
 
-    const aspirant = await Candidate.findOne({
+    const aspirant = await Aspirant.findOne({
       _id: aspirantId,
       electionId,
       ...(student.schoolId ? { schoolId: student.schoolId } : {}),
@@ -128,7 +128,7 @@ export const castStudentVote = async (req, res) => {
     await aspirant.save();
 
     election.votes.push({
-      candidate: `${aspirant.name} - ${aspirant.position}`,
+      candidate: `${aspirant.name} - ${aspirant.electoralCategory}`,
       aspirantId: aspirant._id,
       electionId: election._id,
       categoryId: aspirant.categoryId,

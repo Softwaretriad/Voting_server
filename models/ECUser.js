@@ -6,7 +6,11 @@ const ECUserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true },
   password: { type: String, required: true },
   schoolId: { type: mongoose.Schema.Types.ObjectId, ref: "School", required: true },
-  plan: { type: String, enum: ["basic", "standard", "premium"], default: "basic" },
+  plan: {
+    type: String,
+    enum: ["free", "micro", "small", "medium", "large", "enterprise"],
+    default: "free",
+  },
   maxVoters: { type: Number, default: 1000 }
 });
 

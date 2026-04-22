@@ -1,10 +1,9 @@
 import express from "express";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
+import path from "path";
 import schoolRoutes from "./routes/schoolRoutes.js";
 import ecRoutes from "./routes/ecRoutes.js";
-import electionRoutes from "./routes/electionRoutes.js";
-import voterRoutes from "./routes/voterRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import studentRoutes from "./routes/studentRoutes.js";
 import studentElectionRoutes from "./routes/studentElectionRoutes.js";
@@ -14,8 +13,9 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 import newsRoutes from "./routes/newsRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import { corsMiddleware, securityHeaders } from "./middleware/security.js";
+import { verifyEmailTransport } from "./utils/sendEmail.js";
 import {
-  processElectionResults,
+  processElectionLifecycle,
   startElectionResultsProcessor,
 } from "./utils/electionResultsProcessor.js";
 
@@ -26,12 +26,9 @@ app.disable("x-powered-by");
 app.use(securityHeaders);
 app.use(corsMiddleware);
 app.use(express.json());
+app.use("/assets", express.static(path.join(process.cwd(), "public", "assets")));
 
-app.use("/api/school", schoolRoutes);
 app.use("/api/ec", ecRoutes);
-app.use("/api/election", electionRoutes);
-app.use("/api/voter", voterRoutes);
-
 app.use("/auth", authRoutes);
 app.use("/schools", schoolRoutes);
 app.use("/students", studentRoutes);
@@ -46,7 +43,8 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(async () => {
     console.log("MongoDB connected");
-    await processElectionResults();
+    await verifyEmailTransport();
+    await processElectionLifecycle();
     startElectionResultsProcessor();
   })
   .catch((err) => console.error("MongoDB error:", err));

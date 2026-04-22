@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
 import Election from "../models/Election.js";
-import Candidate from "../models/candidates.js";
+import Aspirant from "../models/Aspirant.js";
 import Notification from "../models/Notification.js";
 import News from "../models/News.js";
 
@@ -22,7 +22,9 @@ const seed = async () => {
     shortName: "UG",
     logoUrl: "https://placehold.co/200x200/png",
     email: schoolEmail,
-    plan: "premium",
+    plan: "free",
+    subscriptionTerm: "1_month",
+    subscriptionStartedAt: new Date(),
     faculties: [
       {
         name: "Faculty of Engineering",
@@ -69,25 +71,31 @@ const seed = async () => {
 
   const categoryId = election.categories[0]._id;
 
-  await Candidate.insertMany([
+  await Aspirant.insertMany([
     {
       name: "Kwame Boateng",
-      position: "SRC President",
+      studentId: "UG-ASP-001",
+      programmeOfStudy: "BSc Computer Science",
+      level: "300",
+      faculty: "Faculty of Engineering",
+      electoralCategory: "SRC President",
       schoolId: school._id,
       electionId: election._id,
       categoryId,
-      department: "Faculty of Engineering",
       imageUrl: "https://placehold.co/300x300/png",
       title: election.title,
       voteCount: 12,
     },
     {
       name: "Efua Owusu",
-      position: "SRC President",
+      studentId: "UG-ASP-002",
+      programmeOfStudy: "BSc Computer Science",
+      level: "300",
+      faculty: "Faculty of Engineering",
+      electoralCategory: "SRC President",
       schoolId: school._id,
       electionId: election._id,
       categoryId,
-      department: "Faculty of Engineering",
       imageUrl: "https://placehold.co/300x300/png",
       title: election.title,
       voteCount: 9,

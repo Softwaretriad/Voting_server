@@ -1,9 +1,10 @@
-import Candidate from "../models/candidates.js";
+import Aspirant from "../models/Aspirant.js";
 import Election from "../models/Election.js";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
 import sendEmail from "./sendEmail.js";
 import { createElectionResultsPdfBuffer } from "./pdfResults.js";
+import { syncSchoolSubscriptionState } from "./plans.js";
 
 const MAX_EMAIL_ATTEMPTS = 3;
 
@@ -19,8 +20,8 @@ const getElectionDateLabel = (election) => {
 };
 
 const getCategorySummaries = async (election) => {
-  const aspirants = await Candidate.find({ electionId: election._id }).sort({
-    position: 1,
+  const aspirants = await Aspirant.find({ electionId: election._id }).sort({
+    electoralCategory: 1,
     voteCount: -1,
     name: 1,
   });
@@ -28,7 +29,7 @@ const getCategorySummaries = async (election) => {
   const grouped = new Map();
 
   aspirants.forEach((aspirant) => {
-    const key = aspirant.categoryId?.toString() || aspirant.position;
+    const key = aspirant.categoryId?.toString() || aspirant.electoralCategory;
     if (!grouped.has(key)) {
       grouped.set(key, []);
     }
@@ -40,7 +41,7 @@ const getCategorySummaries = async (election) => {
     const winnerId = rows[0]?._id?.toString() || null;
 
     return {
-      title: rows[0]?.position || "General",
+      title: rows[0]?.electoralCategory || "General",
       rows: rows.map((row) => ({
         name: row.name,
         voteCount: row.voteCount || 0,
@@ -81,6 +82,34 @@ const sendResultsEmailWithRetry = async ({ student, election, pdfBuffer }) => {
     attempts: MAX_EMAIL_ATTEMPTS,
     error: lastError?.message || "Failed to send results email",
   };
+};
+
+export const processScheduledElections = async ({ forceElectionIds = [] } = {}) => {
+  const now = new Date();
+  const filter =
+    forceElectionIds.length > 0
+      ? { _id: { $in: forceElectionIds } }
+      : { status: "scheduled", startTime: { $lte: now }, endTime: { $gt: now } };
+
+  const elections = await Election.find(filter);
+  const activated = [];
+
+  for (const election of elections) {
+    if (election.status !== "scheduled") {
+      continue;
+    }
+
+    election.status = "active";
+    await election.save();
+
+    activated.push({
+      electionId: election._id.toString(),
+      title: election.title,
+      status: "active",
+    });
+  }
+
+  return activated;
 };
 
 export const processElectionResults = async ({ forceElectionIds = [] } = {}) => {
@@ -159,6 +188,13 @@ export const processElectionResults = async ({ forceElectionIds = [] } = {}) => 
       recipientsSent: sentCount,
       failedRecipients,
     };
+    if (school?.subscriptionTerm === "one_off_election") {
+      school.oneOffElectionConsumed = true;
+      school.subscriptionActive = false;
+      school.subscriptionExpiresAt = new Date();
+      syncSchoolSubscriptionState(school);
+      await school.save();
+    }
     await election.save();
 
     processed.push({
@@ -176,13 +212,25 @@ export const processElectionResults = async ({ forceElectionIds = [] } = {}) => 
 
 let intervalHandle = null;
 
+export const processElectionLifecycle = async () => {
+  const [activated, closed] = await Promise.all([
+    processScheduledElections(),
+    processElectionResults(),
+  ]);
+
+  return {
+    activated,
+    closed,
+  };
+};
+
 export const startElectionResultsProcessor = () => {
   if (intervalHandle) {
     return intervalHandle;
   }
 
   intervalHandle = setInterval(() => {
-    processElectionResults().catch((error) => {
+    processElectionLifecycle().catch((error) => {
       console.error("Election results processor failed:", error.message);
     });
   }, 60 * 1000);

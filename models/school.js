@@ -24,10 +24,18 @@ const SchoolSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, trim: true, lowercase: true },
   plan: {
     type: String,
-    enum: ["basic", "standard", "premium"],
-    required: true,
+    enum: ["free", "micro", "small", "medium", "large", "enterprise"],
+    default: "free",
   },
   subscriptionActive: { type: Boolean, default: true },
+  subscriptionStartedAt: { type: Date, default: Date.now },
+  subscriptionTerm: {
+    type: String,
+    enum: ["1_month", "one_off_election", "3_months", "6_months", "1_year"],
+    default: "1_month",
+  },
+  subscriptionExpiresAt: { type: Date, default: null },
+  oneOffElectionConsumed: { type: Boolean, default: false },
   ecMembers: [{ type: mongoose.Schema.Types.ObjectId, ref: "ECUser" }],
   faculties: { type: [FacultySchema], default: [] },
 });

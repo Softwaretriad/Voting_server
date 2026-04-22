@@ -46,6 +46,8 @@ const issueSession = async (student) => {
     accessToken,
     refreshToken,
     user: sanitizeStudent(student),
+    schoolId: student.schoolId,
+    role: "student",
   };
 };
 
@@ -57,11 +59,11 @@ const issueAdminSession = async (admin) => {
       role: "admin",
     },
     process.env.JWT_SECRET,
-    { expiresIn: "1d" }
+    { expiresIn: "3hours" }
   );
 
   return {
-    token,
+    refreshToken: token,
     accessToken: token,
     role: "admin",
     user: {

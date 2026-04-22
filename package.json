@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "migrate:legacy": "node scripts/migrateLegacyCollections.js",
     "seed:demo": "node scripts/seedStudentAppDemo.js",
     "test:runtime": "node scripts/runtimeTestStudentApi.js",
     "test:v6": "node scripts/testV6Additions.js"

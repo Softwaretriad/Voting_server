@@ -1,6 +1,6 @@
 # MyUniVote Backend API
 
-REST API for the MyUniVote mobile platform. This backend currently supports the student app contract, the first admin additions, runtime verification scripts, and post-election result delivery by email with PDF attachments.
+REST API for the MyUniVote mobile platform. This backend supports the student app contract, the admin election flow, runtime verification scripts, and post-election result delivery by email with PDF attachments.
 
 ## What This Backend Covers
 
@@ -8,6 +8,7 @@ REST API for the MyUniVote mobile platform. This backend currently supports the 
 - Public school, faculty, and programme lookup for onboarding flows
 - Student profile, active elections, schedule, statistics, notifications, news, voting, and results endpoints
 - Admin election management endpoints for listing, creating, updating, scheduling, and deleting elections
+- Uploaded voter registry rows stored in the `Voter` collection, while registered app users live in the `Student` collection
 - Automatic election-close processing that generates result PDFs and emails verified voters
 - Runtime smoke tests and a Postman collection for manual API verification
 
@@ -68,12 +69,19 @@ Admin:
 - `PATCH /admin/elections/:electionId/schedule`
 - `DELETE /admin/elections/:electionId`
 
-Legacy routes still present:
+Admin membership:
 
-- `/api/ec/*`
-- `/api/election/*`
-- `/api/voter/*`
-- `/api/school/*`
+- `POST /api/ec/register`
+- `POST /api/ec/add-member`
+- `GET /api/ec/list/:schoolId`
+- `DELETE /api/ec/:ecId`
+
+## Data Model Notes
+
+- `Student` stores real student app accounts that register, verify email, log in, and vote
+- `Voter` stores uploaded election registry rows from the admin voter spreadsheet
+- `Aspirant` stores uploaded aspirant spreadsheet rows
+- The old legacy voter-auth flow has been removed from the active API surface
 
 ## Security Highlights
 
@@ -111,6 +119,9 @@ JWT_EXPIRATION=1h
 JWT_REFRESH_EXPIRATION=7d
 EMAIL_USER=your_email@example.com
 EMAIL_PASS=your_email_app_password
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
 ALLOWED_ORIGINS=http://localhost:3000
 NODE_ENV=development
 ```
@@ -261,6 +272,16 @@ Relevant files:
 - `utils/electionResultsProcessor.js`
 - `utils/pdfResults.js`
 
+## Migrations
+
+To migrate old legacy `candidates` data into the new `aspirants` collection and normalize legacy `voters` records:
+
+```bash
+npm.cmd run migrate:legacy
+```
+
+This migration also backfills `Voter` rows from any existing elections that already stored `eligibleVoters`.
+
 ## Current Status
 
 The codebase now covers:
@@ -270,4 +291,3 @@ The codebase now covers:
 - admin election CRUD and scheduling 
 - security hardening for sensitive flows
 - runtime verification scripts
-

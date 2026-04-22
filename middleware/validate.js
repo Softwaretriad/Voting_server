@@ -99,6 +99,41 @@ export const validators = {
     ) {
       return "title, startDate, endDate, categories, and status are required";
     }
+    if (body.voters != null && !Array.isArray(body.voters)) {
+      return "voters must be an array when provided";
+    }
+    if (body.aspirants != null && !Array.isArray(body.aspirants)) {
+      return "aspirants must be an array when provided";
+    }
+    if (body.voters == null || body.voters.length === 0) {
+      return "voters is required and must be a non-empty array";
+    }
+    if (body.aspirants == null || body.aspirants.length === 0) {
+      return "aspirants is required and must be a non-empty array";
+    }
+    const invalidVoter = body.voters.find(
+      (voter) =>
+        !voter?.name ||
+        !voter?.studentId ||
+        !voter?.programmeOfStudy ||
+        !voter?.level ||
+        !voter?.faculty
+    );
+    if (invalidVoter) {
+      return "Each voter must include name, studentId, programmeOfStudy, level, and faculty";
+    }
+    const invalidAspirant = body.aspirants.find(
+      (aspirant) =>
+        !aspirant?.name ||
+        !aspirant?.studentId ||
+        !aspirant?.programmeOfStudy ||
+        !aspirant?.level ||
+        !aspirant?.faculty ||
+        !aspirant?.electoralCategory
+    );
+    if (invalidAspirant) {
+      return "Each aspirant must include name, studentId, programmeOfStudy, level, faculty, and electoralCategory";
+    }
     return null;
   },
 };

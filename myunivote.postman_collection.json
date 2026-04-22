@@ -47,7 +47,7 @@
     },
     {
       "key": "studentEmail",
-      "value": "davidseek69@gmail.com"
+      "value": "nailznfleek@gmail.com"
     },
     {
       "key": "studentPassword",
@@ -72,6 +72,10 @@
     {
       "key": "adminUserId",
       "value": ""
+    },
+    {
+      "key": "subscriptionTerm",
+      "value": "1_year"
     },
     {
       "key": "pinResetToken",
@@ -575,6 +579,32 @@
           ]
         },
         {
+          "name": "Get Election By Id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/elections/{{electionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "elections",
+                "{{electionId}}"
+              ]
+            }
+          }
+        },
+        {
           "name": "Get Election Schedule",
           "request": {
             "method": "GET",
@@ -1030,9 +1060,9 @@
         }
       ]
     },
-    {
-      "name": "Admin Auth",
-      "item": [
+      {
+        "name": "Admin Auth",
+        "item": [
         {
           "name": "Login Admin",
           "request": {
@@ -1083,12 +1113,189 @@
               }
             }
           ]
-        }
-      ]
-    },
-    {
-      "name": "Admin Elections",
-      "item": [
+          }
+        ]
+      },
+      {
+        "name": "Admin Insights",
+        "item": [
+          {
+            "name": "Get Admin Dashboard",
+            "request": {
+              "method": "GET",
+              "header": [
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{adminToken}}"
+                },
+                {
+                  "key": "Accept",
+                  "value": "application/json"
+                }
+              ],
+              "url": {
+                "raw": "{{baseUrl}}/admin/dashboard/{{schoolId}}",
+                "host": [
+                  "{{baseUrl}}"
+                ],
+                "path": [
+                  "admin",
+                  "dashboard",
+                  "{{schoolId}}"
+                ]
+              }
+            }
+          },
+          {
+            "name": "Get Admin Reports",
+            "request": {
+              "method": "GET",
+              "header": [
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{adminToken}}"
+                },
+                {
+                  "key": "Accept",
+                  "value": "application/json"
+                }
+              ],
+              "url": {
+                "raw": "{{baseUrl}}/admin/reports/{{schoolId}}",
+                "host": [
+                  "{{baseUrl}}"
+                ],
+                "path": [
+                  "admin",
+                  "reports",
+                  "{{schoolId}}"
+                ]
+              }
+            }
+          },
+          {
+            "name": "Get Detailed Election Report",
+            "request": {
+              "method": "GET",
+              "header": [
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{adminToken}}"
+                },
+                {
+                  "key": "Accept",
+                  "value": "application/json"
+                }
+              ],
+              "url": {
+                "raw": "{{baseUrl}}/admin/reports/elections/{{electionId}}",
+                "host": [
+                  "{{baseUrl}}"
+                ],
+                "path": [
+                  "admin",
+                  "reports",
+                  "elections",
+                  "{{electionId}}"
+                ]
+              }
+            }
+          },
+          {
+            "name": "Get Admin Activity",
+            "request": {
+              "method": "GET",
+              "header": [
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{adminToken}}"
+                },
+                {
+                  "key": "Accept",
+                  "value": "application/json"
+                }
+              ],
+              "url": {
+                "raw": "{{baseUrl}}/admin/activity/{{schoolId}}",
+                "host": [
+                  "{{baseUrl}}"
+                ],
+                "path": [
+                  "admin",
+                  "activity",
+                  "{{schoolId}}"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "School Subscription",
+        "item": [
+          {
+            "name": "Get School Subscription",
+            "request": {
+              "method": "GET",
+              "header": [
+                {
+                  "key": "Accept",
+                  "value": "application/json"
+                }
+              ],
+              "url": {
+                "raw": "{{baseUrl}}/schools/subscription/{{schoolId}}",
+                "host": [
+                  "{{baseUrl}}"
+                ],
+                "path": [
+                  "schools",
+                  "subscription",
+                  "{{schoolId}}"
+                ]
+              }
+            }
+          },
+          {
+            "name": "Update School Subscription",
+            "request": {
+              "method": "PATCH",
+              "header": [
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{adminToken}}"
+                },
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "Accept",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "mode": "raw",
+                "raw": "{\n  \"plan\": \"free\",\n  \"subscriptionTerm\": \"1_month\",\n  \"subscriptionStartedAt\": \"2026-04-12T00:00:00.000Z\"\n}"
+              },
+              "url": {
+                "raw": "{{baseUrl}}/schools/subscription/{{schoolId}}",
+                "host": [
+                  "{{baseUrl}}"
+                ],
+                "path": [
+                  "schools",
+                  "subscription",
+                  "{{schoolId}}"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "Admin Elections",
+        "item": [
         {
           "name": "Get Draft Elections",
           "request": {
@@ -1137,6 +1344,33 @@
               }
             }
           ]
+        },
+        {
+          "name": "Get Admin Election By Id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/elections/{{electionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "elections",
+                "{{electionId}}"
+              ]
+            }
+          }
         },
         {
           "name": "Get Scheduled Elections",
@@ -1207,7 +1441,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"SRC General Election\",\n  \"startDate\": \"2026-05-01T09:00:00.000Z\",\n  \"endDate\": \"2026-05-02T17:00:00.000Z\",\n  \"categories\": [\"SRC President\", \"General Secretary\"],\n  \"status\": \"draft\",\n  \"voterListUrl\": \"\",\n  \"aspirantListUrl\": \"\"\n}"
+              "raw": "{\n  \"title\": \"SRC General Election\",\n  \"startDate\": \"2026-05-01T09:00:00.000Z\",\n  \"endDate\": \"2026-05-02T17:00:00.000Z\",\n  \"categories\": [\"SRC President\", \"General Secretary\"],\n  \"status\": \"draft\",\n  \"voterListUrl\": \"students_registry.xlsx\",\n  \"aspirantListUrl\": \"aspirants_registry.xlsx\",\n  \"voters\": [\n    {\n      \"name\": \"Ama Mensah\",\n      \"studentId\": \"UG001\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\"\n    },\n    {\n      \"name\": \"Kojo Owusu\",\n      \"studentId\": \"UG002\",\n      \"programmeOfStudy\": \"BA Economics\",\n      \"level\": \"200\",\n      \"faculty\": \"Business\"\n    }\n  ],\n  \"aspirants\": [\n    {\n      \"name\": \"Esi Boateng\",\n      \"studentId\": \"UG010\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\",\n      \"electoralCategory\": \"SRC President\"\n    },\n    {\n      \"name\": \"Yaw Asare\",\n      \"studentId\": \"UG011\",\n      \"programmeOfStudy\": \"BA Political Science\",\n      \"level\": \"400\",\n      \"faculty\": \"Social Sciences\",\n      \"electoralCategory\": \"General Secretary\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/admin/elections",

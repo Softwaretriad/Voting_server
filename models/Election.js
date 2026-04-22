@@ -24,6 +24,18 @@ const ElectionSchema = new mongoose.Schema({
   },
   voterListUrl: { type: String, default: "" },
   aspirantListUrl: { type: String, default: "" },
+  eligibleVoters: {
+    type: [
+      {
+        name: { type: String, default: "" },
+        studentId: { type: String, default: "" },
+        programmeOfStudy: { type: String, default: "" },
+        level: { type: String, default: "" },
+        faculty: { type: String, default: "" },
+      },
+    ],
+    default: [],
+  },
   categories: { type: [ElectionCategorySchema], default: [] },
   candidates: [
     {
@@ -34,7 +46,7 @@ const ElectionSchema = new mongoose.Schema({
   votes: [
     {
       candidate: String,
-      aspirantId: { type: mongoose.Schema.Types.ObjectId, ref: "Candidate" },
+      aspirantId: { type: mongoose.Schema.Types.ObjectId, ref: "Aspirant" },
       electionId: { type: mongoose.Schema.Types.ObjectId, ref: "Election" },
       categoryId: { type: mongoose.Schema.Types.ObjectId },
       voterId: { type: mongoose.Schema.Types.ObjectId, ref: "Voter" },

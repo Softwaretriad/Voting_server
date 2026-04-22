@@ -1,7 +1,6 @@
 import express from "express";
 import {  registerEC } from "../controllers/authController.js";
-import { addECMember, listECMembers,  ecDashboard,   removeECMember,
-  getCandidates } from "../controllers/ecController.js";
+import { addECMember, listECMembers, removeECMember } from "../controllers/ecController.js";
 import { protect } from "../middleware/authEC.js";
 
 
@@ -12,11 +11,7 @@ router.post("/register", registerEC);
 // ecRoutes.js
 router.post("/add-member", protect, addECMember);
 router.get("/list/:schoolId", protect, listECMembers);
-router.get("/dashboard", protect, ecDashboard);
 /** Remove EC Member */
 router.delete("/:ecId", protect, removeECMember);  
-
-/** Get all candidates for a school */
-router.get("/candidates", protect, getCandidates);  
 
 export default router;

@@ -15,7 +15,7 @@ export const registerEC = async (req, res) => {
       return res.status(400).json({ error: "Admin password must be at least 8 characters" });
     }
 
-    const selectedPlan = plans[plan] || plans.basic;
+    const selectedPlan = plans[plan] || plans.free;
     const normalizedEmail = normalizeEmail(email);
     const existing = await ECUser.findOne({ email: normalizedEmail });
     if (existing) {
