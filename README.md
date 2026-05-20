@@ -6,7 +6,7 @@ REST API for the MyUniVote mobile platform. This backend supports the student ap
 
 - Student registration, email verification, login, logout, token checks, password reset, and voting PIN recovery
 - Public school, faculty, and programme lookup for onboarding flows
-- Student profile, active elections, schedule, statistics, notifications, news, voting, and results endpoints
+- Student profile, active elections, schedule, statistics, notifications, voting, and results endpoints
 - Admin election management endpoints for listing, creating, updating, scheduling, and deleting elections
 - Uploaded voter registry rows stored in the `Voter` collection, while registered app users live in the `Student` collection
 - Automatic election-close processing that generates result PDFs and emails verified voters
@@ -43,6 +43,7 @@ Public lookup:
 Student app:
 
 - `GET /students/:userId`
+- `DELETE /students/:userId`
 - `GET /elections/active`
 - `GET /elections/schedule`
 - `GET /elections/statistics?year=YYYY`
@@ -51,7 +52,6 @@ Student app:
 - `GET /elections/:electionId/aspirants`
 - `GET /categories/:categoryId/results`
 - `GET /notifications/:userId`
-- `GET /news/trending`
 
 Voting:
 
@@ -187,7 +187,21 @@ Seed demo records for local testing:
 npm.cmd run seed:demo
 ```
 
-This creates a demo school, student, election, notification, and news dataset suitable for exercising the student app endpoints.
+This creates a demo school, student, election, and notification dataset suitable for exercising the student app endpoints.
+
+## Reviewer Demo Seed
+
+Seed stable reviewer/demo accounts:
+
+```bash
+npm.cmd run seed:review-demo
+```
+
+This creates fixed review credentials for both student and admin roles.
+
+See:
+
+- `docs/reviewer-demo-accounts.md`
 
 ## Runtime Verification
 

@@ -22,9 +22,17 @@ const StudentSchema = new mongoose.Schema(
     password: { type: String, required: true },
     phone: { type: String, required: true, trim: true },
     schoolId: { type: mongoose.Schema.Types.ObjectId, ref: "School", default: null },
+    accountRole: {
+      type: String,
+      enum: ["student", "admin"],
+      default: "student",
+      index: true,
+    },
+    adminAssignedAt: { type: Date, default: null },
+    adminAssignedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Student", default: null },
     universityFullName: { type: String, required: true, trim: true },
     department: { type: String, required: true, trim: true },
-    currentYearOfStudy: { type: Number, required: true, min: 1 },
+    currentYearOfStudy: { type: Number, default: null, min: 1 },
     programOfStudy: { type: String, required: true, trim: true },
     votingPin: { type: String, required: true },
     isEmailVerified: { type: Boolean, default: false },
@@ -41,6 +49,13 @@ const StudentSchema = new mongoose.Schema(
     passwordResetTokenExpires: { type: Date, default: null },
     votingPinAttempts: { type: Number, default: 0 },
     votingPinLockedUntil: { type: Date, default: null },
+    notificationPreferences: {
+      notificationsEnabled: { type: Boolean, default: true },
+      electionAlertsEnabled: { type: Boolean, default: true },
+      resultsEnabled: { type: Boolean, default: true },
+      announcementsEnabled: { type: Boolean, default: true },
+      voterActivityEnabled: { type: Boolean, default: true },
+    },
   },
   { timestamps: true }
 );

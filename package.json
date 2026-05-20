@@ -7,7 +7,9 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "migrate:legacy": "node scripts/migrateLegacyCollections.js",
+    "cleanup:news": "node scripts/removeNewsFeatureData.js",
     "seed:demo": "node scripts/seedStudentAppDemo.js",
+    "seed:review-demo": "node scripts/seedReviewDemoAccounts.js",
     "test:runtime": "node scripts/runtimeTestStudentApi.js",
     "test:v6": "node scripts/testV6Additions.js"
   },
@@ -19,7 +21,9 @@
     "mongodb": "^6.17.0",
     "mongoose": "^8.16.0",
     "multer": "^2.0.1",
-    "nodemailer": "^7.0.3"
+    "nodemailer": "^7.0.3",
+    "sharp": "^0.34.5",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

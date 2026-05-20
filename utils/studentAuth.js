@@ -2,6 +2,9 @@ import jwt from "jsonwebtoken";
 
 const ACCESS_TOKEN_EXPIRY = process.env.JWT_EXPIRATION || "1h";
 const REFRESH_TOKEN_EXPIRY = process.env.JWT_REFRESH_EXPIRATION || "7d";
+const ADMIN_ACCESS_TOKEN_EXPIRY = process.env.JWT_ADMIN_EXPIRATION || "3h";
+const ADMIN_REFRESH_TOKEN_EXPIRY =
+  process.env.JWT_ADMIN_REFRESH_EXPIRATION || "7d";
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
 
 export const createOtp = () =>
@@ -20,6 +23,24 @@ export const signRefreshToken = (student) =>
     process.env.JWT_SECRET,
     {
       expiresIn: REFRESH_TOKEN_EXPIRY,
+    }
+  );
+
+export const signAdminAccessToken = (admin) =>
+  jwt.sign(
+    { userId: admin._id, schoolId: admin.schoolId, role: "admin", type: "access" },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: ADMIN_ACCESS_TOKEN_EXPIRY,
+    }
+  );
+
+export const signAdminRefreshToken = (admin) =>
+  jwt.sign(
+    { userId: admin._id, schoolId: admin.schoolId, role: "admin", type: "refresh" },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: ADMIN_REFRESH_TOKEN_EXPIRY,
     }
   );
 

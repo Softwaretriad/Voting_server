@@ -80,6 +80,74 @@
     {
       "key": "pinResetToken",
       "value": ""
+    },
+    {
+      "key": "adminResetToken",
+      "value": ""
+    },
+    {
+      "key": "adminInviteToken",
+      "value": ""
+    },
+    {
+      "key": "invitedAdminEmail",
+      "value": "new-admin@example.com"
+    },
+    {
+      "key": "invitedAdminName",
+      "value": "New Admin"
+    },
+    {
+      "key": "invitedAdminPassword",
+      "value": "Admin@12345"
+    },
+    {
+      "key": "uploadStudentId",
+      "value": "UG010"
+    },
+    {
+      "key": "uploadClientKey",
+      "value": "aspirant-0"
+    },
+    {
+      "key": "uploadedAspirantImageUrl",
+      "value": ""
+    },
+    {
+      "key": "uploadElectionKey",
+      "value": "src-general-election-2026"
+    },
+    {
+      "key": "uploadedElectionImageUrl",
+      "value": ""
+    },
+    {
+      "key": "pushToken",
+      "value": "fcm-demo-token"
+    },
+    {
+      "key": "apnsToken",
+      "value": "apns-demo-token"
+    },
+    {
+      "key": "deviceId",
+      "value": "device-001"
+    },
+    {
+      "key": "reviewStudentEmail",
+      "value": "review.student@myunivote.demo"
+    },
+    {
+      "key": "reviewStudentPassword",
+      "value": "Review@123"
+    },
+    {
+      "key": "reviewAdminEmail",
+      "value": "review.admin@myunivote.demo"
+    },
+    {
+      "key": "reviewAdminPassword",
+      "value": "Review@123"
     }
   ],
   "item": [
@@ -212,7 +280,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"studentId\": \"UG-10001\",\n  \"firstName\": \"David\",\n  \"lastName\": \"Mensah\",\n  \"gender\": \"male\",\n  \"email\": \"your-new-email@example.com\",\n  \"password\": \"Password@123\",\n  \"phone\": \"+233240000000\",\n  \"universityFullName\": \"University of Ghana\",\n  \"department\": \"Faculty of Engineering\",\n  \"currentYearOfStudy\": 3,\n  \"programOfStudy\": \"BSc Computer Science\",\n  \"votingPin\": 1234\n}"
+              "raw": "{\n  \"studentId\": \"UG-10001\",\n  \"firstName\": \"David\",\n  \"lastName\": \"Mensah\",\n  \"gender\": \"male\",\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\",\n  \"phone\": \"+233240000000\",\n  \"universityFullName\": \"University of Ghana\",\n  \"department\": \"Faculty of Engineering\",\n  \"currentYearOfStudy\": 3,\n  \"programOfStudy\": \"BSc Computer Science\",\n  \"votingPin\": 1234\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/register",
@@ -242,7 +310,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"your-new-email@example.com\",\n  \"otp\": \"123456\"\n}"
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"otp\": \"123456\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/verify-email",
@@ -533,6 +601,166 @@
                 "{{userId}}"
               ]
             }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.email) pm.collectionVariables.set('studentEmail', data.email);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Student Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"David\",\n  \"lastName\": \"Mensah\",\n  \"phoneNumber\": \"+233240000001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/students/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "students",
+                "{{userId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Change Student Email",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"new-student-email@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/students/{{userId}}/email",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "students",
+                "{{userId}}",
+                "email"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.email) pm.collectionVariables.set('studentEmail', data.email);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Student Account",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{studentPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/students/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "students",
+                "{{userId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Student Vote History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/students/{{userId}}/vote-history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "students",
+                "{{userId}}",
+                "vote-history"
+              ]
+            }
           }
         },
         {
@@ -689,7 +917,7 @@
           }
         },
         {
-          "name": "Get Trending News",
+          "name": "Get Student Notification Preferences",
           "request": {
             "method": "GET",
             "header": [
@@ -703,13 +931,49 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/news/trending",
+              "raw": "{{baseUrl}}/students/{{userId}}/notification-preferences",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "news",
-                "trending"
+                "students",
+                "{{userId}}",
+                "notification-preferences"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Student Notification Preferences",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notificationsEnabled\": true,\n  \"electionAlertsEnabled\": true,\n  \"resultsEnabled\": true,\n  \"announcementsEnabled\": true,\n  \"voterActivityEnabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/students/{{userId}}/notification-preferences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "students",
+                "{{userId}}",
+                "notification-preferences"
               ]
             }
           }
@@ -1060,9 +1324,9 @@
         }
       ]
     },
-      {
-        "name": "Admin Auth",
-        "item": [
+    {
+      "name": "Admin Auth",
+      "item": [
         {
           "name": "Login Admin",
           "request": {
@@ -1113,189 +1377,696 @@
               }
             }
           ]
-          }
-        ]
-      },
-      {
-        "name": "Admin Insights",
-        "item": [
-          {
-            "name": "Get Admin Dashboard",
-            "request": {
-              "method": "GET",
-              "header": [
-                {
-                  "key": "Authorization",
-                  "value": "Bearer {{adminToken}}"
-                },
-                {
-                  "key": "Accept",
-                  "value": "application/json"
-                }
-              ],
-              "url": {
-                "raw": "{{baseUrl}}/admin/dashboard/{{schoolId}}",
-                "host": [
-                  "{{baseUrl}}"
-                ],
-                "path": [
-                  "admin",
-                  "dashboard",
-                  "{{schoolId}}"
-                ]
-              }
-            }
-          },
-          {
-            "name": "Get Admin Reports",
-            "request": {
-              "method": "GET",
-              "header": [
-                {
-                  "key": "Authorization",
-                  "value": "Bearer {{adminToken}}"
-                },
-                {
-                  "key": "Accept",
-                  "value": "application/json"
-                }
-              ],
-              "url": {
-                "raw": "{{baseUrl}}/admin/reports/{{schoolId}}",
-                "host": [
-                  "{{baseUrl}}"
-                ],
-                "path": [
-                  "admin",
-                  "reports",
-                  "{{schoolId}}"
-                ]
-              }
-            }
-          },
-          {
-            "name": "Get Detailed Election Report",
-            "request": {
-              "method": "GET",
-              "header": [
-                {
-                  "key": "Authorization",
-                  "value": "Bearer {{adminToken}}"
-                },
-                {
-                  "key": "Accept",
-                  "value": "application/json"
-                }
-              ],
-              "url": {
-                "raw": "{{baseUrl}}/admin/reports/elections/{{electionId}}",
-                "host": [
-                  "{{baseUrl}}"
-                ],
-                "path": [
-                  "admin",
-                  "reports",
-                  "elections",
-                  "{{electionId}}"
-                ]
-              }
-            }
-          },
-          {
-            "name": "Get Admin Activity",
-            "request": {
-              "method": "GET",
-              "header": [
-                {
-                  "key": "Authorization",
-                  "value": "Bearer {{adminToken}}"
-                },
-                {
-                  "key": "Accept",
-                  "value": "application/json"
-                }
-              ],
-              "url": {
-                "raw": "{{baseUrl}}/admin/activity/{{schoolId}}",
-                "host": [
-                  "{{baseUrl}}"
-                ],
-                "path": [
-                  "admin",
-                  "activity",
-                  "{{schoolId}}"
-                ]
-              }
-            }
-          }
-        ]
-      },
-      {
-        "name": "School Subscription",
-        "item": [
-          {
-            "name": "Get School Subscription",
-            "request": {
-              "method": "GET",
-              "header": [
-                {
-                  "key": "Accept",
-                  "value": "application/json"
-                }
-              ],
-              "url": {
-                "raw": "{{baseUrl}}/schools/subscription/{{schoolId}}",
-                "host": [
-                  "{{baseUrl}}"
-                ],
-                "path": [
-                  "schools",
-                  "subscription",
-                  "{{schoolId}}"
-                ]
-              }
-            }
-          },
-          {
-            "name": "Update School Subscription",
-            "request": {
-              "method": "PATCH",
-              "header": [
-                {
-                  "key": "Authorization",
-                  "value": "Bearer {{adminToken}}"
-                },
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                },
-                {
-                  "key": "Accept",
-                  "value": "application/json"
-                }
-              ],
-              "body": {
-                "mode": "raw",
-                "raw": "{\n  \"plan\": \"free\",\n  \"subscriptionTerm\": \"1_month\",\n  \"subscriptionStartedAt\": \"2026-04-12T00:00:00.000Z\"\n}"
+        },
+        {
+          "name": "Forgot Admin Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               },
-              "url": {
-                "raw": "{{baseUrl}}/schools/subscription/{{schoolId}}",
-                "host": [
-                  "{{baseUrl}}"
-                ],
-                "path": [
-                  "schools",
-                  "subscription",
-                  "{{schoolId}}"
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "auth",
+                "forgot-password"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify Admin Reset OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"otp\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/auth/verify-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "auth",
+                "verify-otp"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.resetToken) pm.collectionVariables.set('adminResetToken', data.resetToken);"
                 ]
               }
             }
+          ]
+        },
+        {
+          "name": "Reset Admin Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resetToken\": \"{{adminResetToken}}\",\n  \"newPassword\": \"Admin@10920528\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/auth/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "auth",
+                "reset-password"
+              ]
+            }
           }
-        ]
-      },
-      {
-        "name": "Admin Elections",
-        "item": [
+        },
+        {
+          "name": "Get Admin Invite Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/auth/invite?token={{adminInviteToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "auth",
+                "invite"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{adminInviteToken}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Complete Admin Invite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{adminInviteToken}}\",\n  \"name\": \"{{invitedAdminName}}\",\n  \"password\": \"{{invitedAdminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/auth/complete-invite",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "auth",
+                "complete-invite"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.email) pm.collectionVariables.set('adminEmail', data.email);",
+                  "pm.collectionVariables.set('adminPassword', pm.collectionVariables.get('invitedAdminPassword'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin Insights",
+      "item": [
+        {
+          "name": "Get Admin Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/dashboard/{{schoolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "dashboard",
+                "{{schoolId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Admin Live Election Monitor",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/monitor/elections/{{electionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "monitor",
+                "elections",
+                "{{electionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Socket Health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/debug/socket-health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "debug",
+                "socket-health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Admin Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/notifications/{{adminUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "notifications",
+                "{{adminUserId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Admin Notification Preferences",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/{{adminUserId}}/notification-preferences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "{{adminUserId}}",
+                "notification-preferences"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Admin Notification Preferences",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notificationsEnabled\": true,\n  \"electionAlertsEnabled\": true,\n  \"resultsEnabled\": true,\n  \"announcementsEnabled\": true,\n  \"voterActivityEnabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/{{adminUserId}}/notification-preferences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "{{adminUserId}}",
+                "notification-preferences"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Admin Reports",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/{{schoolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports",
+                "{{schoolId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Detailed Election Report",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/elections/{{electionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports",
+                "elections",
+                "{{electionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Admin Activity",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/activity/{{schoolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "activity",
+                "{{schoolId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Devices",
+      "item": [
+        {
+          "name": "Register Push Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{pushToken}}\",\n  \"platform\": \"android\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"notificationsEnabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/push-tokens",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devices",
+                "push-tokens"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Push Token",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/push-tokens/{{pushToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devices",
+                "push-tokens",
+                "{{pushToken}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Register APNS Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{apnsToken}}\",\n  \"platform\": \"ios\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"notificationsEnabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/apns-tokens",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devices",
+                "apns-tokens"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete APNS Token",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/apns-tokens/{{apnsToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devices",
+                "apns-tokens",
+                "{{apnsToken}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "School Subscription",
+      "item": [
+        {
+          "name": "Get School Subscription",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/schools/subscription/{{schoolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "schools",
+                "subscription",
+                "{{schoolId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update School Subscription",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"free\",\n  \"subscriptionTerm\": \"1_month\",\n  \"subscriptionStartedAt\": \"2026-04-12T00:00:00.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/schools/subscription/{{schoolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "schools",
+                "subscription",
+                "{{schoolId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Invitations",
+      "item": [
+        {
+          "name": "Invite Admin Members",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"emails\": [\"{{invitedAdminEmail}}\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/ec/invite-members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ec",
+                "invite-members"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (Array.isArray(data.invited) && data.invited.length > 0 && data.invited[0].email) {",
+                  "  pm.collectionVariables.set('invitedAdminEmail', data.invited[0].email);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin Elections",
+      "item": [
         {
           "name": "Get Draft Elections",
           "request": {
@@ -1373,6 +2144,130 @@
           }
         },
         {
+          "name": "Get Admin Election Categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/elections/{{electionId}}/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "elections",
+                "{{electionId}}",
+                "categories"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (Array.isArray(data) && data.length > 0 && data[0]._id) {",
+                  "  pm.collectionVariables.set('categoryId', data[0]._id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Admin Election Aspirants",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/elections/{{electionId}}/aspirants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "elections",
+                "{{electionId}}",
+                "aspirants"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (Array.isArray(data) && data.length > 0 && data[0]._id) {",
+                  "  pm.collectionVariables.set('aspirantId', data[0]._id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Admin Election Aspirants By Category",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/elections/{{electionId}}/aspirants?categoryId={{categoryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "elections",
+                "{{electionId}}",
+                "aspirants"
+              ],
+              "query": [
+                {
+                  "key": "categoryId",
+                  "value": "{{categoryId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Get Scheduled Elections",
           "request": {
             "method": "GET",
@@ -1422,6 +2317,128 @@
           ]
         },
         {
+          "name": "Upload Aspirant Image",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "studentId",
+                  "value": "{{uploadStudentId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "clientKey",
+                  "value": "{{uploadClientKey}}",
+                  "type": "text"
+                },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/uploads/images",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "uploads",
+                "images"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.url) pm.collectionVariables.set('uploadedAspirantImageUrl', data.url);",
+                  "if (data.studentId) pm.collectionVariables.set('uploadStudentId', data.studentId);",
+                  "if (data.clientKey) pm.collectionVariables.set('uploadClientKey', data.clientKey);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Election Image",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "clientKey",
+                  "value": "{{uploadElectionKey}}",
+                  "type": "text"
+                },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/uploads/election-images",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "uploads",
+                "election-images"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.url) pm.collectionVariables.set('uploadedElectionImageUrl', data.url);",
+                  "if (data.clientKey) pm.collectionVariables.set('uploadElectionKey', data.clientKey);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Create Election",
           "request": {
             "method": "POST",
@@ -1441,7 +2458,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"SRC General Election\",\n  \"startDate\": \"2026-05-01T09:00:00.000Z\",\n  \"endDate\": \"2026-05-02T17:00:00.000Z\",\n  \"categories\": [\"SRC President\", \"General Secretary\"],\n  \"status\": \"draft\",\n  \"voterListUrl\": \"students_registry.xlsx\",\n  \"aspirantListUrl\": \"aspirants_registry.xlsx\",\n  \"voters\": [\n    {\n      \"name\": \"Ama Mensah\",\n      \"studentId\": \"UG001\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\"\n    },\n    {\n      \"name\": \"Kojo Owusu\",\n      \"studentId\": \"UG002\",\n      \"programmeOfStudy\": \"BA Economics\",\n      \"level\": \"200\",\n      \"faculty\": \"Business\"\n    }\n  ],\n  \"aspirants\": [\n    {\n      \"name\": \"Esi Boateng\",\n      \"studentId\": \"UG010\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\",\n      \"electoralCategory\": \"SRC President\"\n    },\n    {\n      \"name\": \"Yaw Asare\",\n      \"studentId\": \"UG011\",\n      \"programmeOfStudy\": \"BA Political Science\",\n      \"level\": \"400\",\n      \"faculty\": \"Social Sciences\",\n      \"electoralCategory\": \"General Secretary\"\n    }\n  ]\n}"
+              "raw": "{\n  \"title\": \"SRC General Election\",\n  \"imageUrl\": \"{{uploadedElectionImageUrl}}\",\n  \"startDate\": \"2026-05-01T09:00:00.000Z\",\n  \"endDate\": \"2026-05-02T17:00:00.000Z\",\n  \"categories\": [\"SRC President\", \"General Secretary\"],\n  \"status\": \"draft\",\n  \"voterListUrl\": \"students_registry.xlsx\",\n  \"aspirantListUrl\": \"aspirants_registry.xlsx\",\n  \"voters\": [\n    {\n      \"name\": \"Ama Mensah\",\n      \"studentId\": \"UG001\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\"\n    },\n    {\n      \"name\": \"Kojo Owusu\",\n      \"studentId\": \"UG002\",\n      \"programmeOfStudy\": \"BA Economics\",\n      \"level\": \"200\",\n      \"faculty\": \"Business\"\n    }\n  ],\n  \"aspirants\": [\n    {\n      \"name\": \"Esi Boateng\",\n      \"studentId\": \"UG010\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\",\n      \"electoralCategory\": \"SRC President\"\n    },\n    {\n      \"name\": \"Yaw Asare\",\n      \"studentId\": \"UG011\",\n      \"programmeOfStudy\": \"BA Political Science\",\n      \"level\": \"400\",\n      \"faculty\": \"Social Sciences\",\n      \"electoralCategory\": \"General Secretary\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/admin/elections",
@@ -1556,6 +2573,74 @@
                 "admin",
                 "elections",
                 "{{electionId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Voting",
+      "item": [
+        {
+          "name": "Cast Admin Vote",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"adminUserId\": \"{{adminUserId}}\",\n  \"electionId\": \"{{electionId}}\",\n  \"aspirantId\": \"{{aspirantId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/votes/cast",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "votes",
+                "cast"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Admin Vote History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/votes/history/{{adminUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "votes",
+                "history",
+                "{{adminUserId}}"
               ]
             }
           }

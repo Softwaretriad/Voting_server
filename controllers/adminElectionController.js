@@ -4,8 +4,24 @@ import Student from "../models/Student.js";
 import Aspirant from "../models/Aspirant.js";
 import Voter from "../models/Voter.js";
 import { sendError } from "../utils/apiResponse.js";
+import { isStudentRegistryIdInElectionVoters } from "../utils/electionEligibility.js";
 import { recordActivity } from "../utils/activityLog.js";
+import {
+  buildAspirantImageUrl,
+  hasUploadedImage,
+} from "../utils/aspirantImage.js";
 import { getPlanConfig, syncSchoolSubscriptionState } from "../utils/plans.js";
+import { hasAdminVotedInCategory } from "../utils/voteState.js";
+import {
+  getEligibleStudentObjectIdsForElection,
+  notifyEligibleStudentsForElection,
+  notifyRemovedStudentsFromElection,
+  notifySchoolAdmins,
+} from "../utils/notificationService.js";
+import {
+  emitAdminSchoolEvent,
+  emitStudentScopedEvent,
+} from "../utils/liveMonitorSocket.js";
 
 const allowedStatuses = new Set(["active", "scheduled", "draft", "closed"]);
 
@@ -15,9 +31,25 @@ const mapElectionResponse = (election) => ({
   status: election.status === "pending" ? "draft" : election.status,
   startDate: election.startTime ? election.startTime.toISOString() : null,
   endDate: election.endTime ? election.endTime.toISOString() : null,
+  imageUrl: election.imageUrl || "",
   categories: (election.categories || []).map((category) => category.title),
   // voterListUrl: election.voterListUrl || "",
   //aspirantListUrl: election.aspirantListUrl || "",
+});
+
+const mapEditAspirantResponse = (aspirant) => ({
+  _id: aspirant._id.toString(),
+  electionId: aspirant.electionId?.toString() || "",
+  categoryId: aspirant.categoryId?.toString() || "",
+  name: aspirant.name,
+  studentId: aspirant.studentId || "",
+  programmeOfStudy: aspirant.programmeOfStudy || "",
+  level: aspirant.level || "",
+  faculty: aspirant.faculty || "",
+  electoralCategory: aspirant.electoralCategory || "",
+  department: aspirant.faculty || "",
+  imageUrl: aspirant.imageUrl || "",
+  voteCount: aspirant.voteCount || 0,
 });
 
 const normalizeCategories = (categories = []) =>
@@ -46,25 +78,32 @@ const buildVoterDocs = ({ voters = [], election, schoolId }) =>
       source: "upload",
     }));
 
-const buildAspirantDocs = ({ aspirants = [], election, schoolId }) => {
+const buildAspirantDocs = async ({ aspirants = [], election, schoolId, req }) => {
   const categoryByTitle = new Map(
     (election.categories || []).map((category) => [category.title, category])
   );
 
-  return aspirants
-    .map((aspirant) => {
+  const docs = await Promise.all(
+    aspirants.map(async (aspirant) => {
       const electoralCategory = String(aspirant.electoralCategory || "").trim();
       const name = String(aspirant.name || "").trim();
+      const studentId = String(aspirant.studentId || "").trim();
 
       if (!name || !electoralCategory) {
         return null;
       }
 
       const category = categoryByTitle.get(electoralCategory);
+      const providedImageUrl = String(aspirant.imageUrl || "").trim();
+      const imageUrl =
+        providedImageUrl ||
+        ((studentId && (await hasUploadedImage(studentId)))
+          ? buildAspirantImageUrl(req, studentId)
+          : "");
 
       return {
         name,
-        studentId: String(aspirant.studentId || "").trim(),
+        studentId,
         programmeOfStudy: String(aspirant.programmeOfStudy || "").trim(),
         level: String(aspirant.level || "").trim(),
         faculty: String(aspirant.faculty || "").trim(),
@@ -72,15 +111,52 @@ const buildAspirantDocs = ({ aspirants = [], election, schoolId }) => {
         schoolId,
         electionId: election._id,
         categoryId: category?._id || null,
-        imageUrl: String(aspirant.imageUrl || "").trim(),
+        imageUrl,
         title: election.title,
         voteCount: 0,
       };
     })
-    .filter(Boolean);
+  );
+
+  return docs.filter(Boolean);
 };
 
 const parseStatus = (status) => (status === "pending" ? "draft" : status);
+
+const mapAdminCategoryResponse = ({ election, category, adminId, isInVotersList }) => ({
+  _id: category._id.toString(),
+  electionId: election._id.toString(),
+  title: category.title,
+  subTitle: category.subTitle || election.subTitle || "",
+  imageUrl: category.imageUrl || "",
+  totalVotes: (election.votes || []).filter(
+    (vote) => vote.categoryId?.toString() === category._id.toString()
+  ).length,
+  hasVotedInCategory: hasAdminVotedInCategory({
+    election,
+    adminId,
+    categoryId: category._id,
+  }),
+  isInVotersList: Boolean(isInVotersList),
+});
+
+const buildStudentHomeElectionEventPayload = (election, statusOverride = null) => ({
+  electionId: election._id.toString(),
+  status: statusOverride || parseStatus(election.status),
+  title: election.title,
+  schoolId: election.schoolId?.toString?.() || election.schoolId,
+  startDate: election.startTime ? election.startTime.toISOString() : null,
+  endDate: election.endTime ? election.endTime.toISOString() : null,
+});
+
+const buildAdminHomeElectionEventPayload = (election, statusOverride = null) => ({
+  electionId: election._id.toString(),
+  status: statusOverride || parseStatus(election.status),
+  title: election.title,
+  schoolId: election.schoolId?.toString?.() || election.schoolId,
+  startDate: election.startTime ? election.startTime.toISOString() : null,
+  endDate: election.endTime ? election.endTime.toISOString() : null,
+});
 
 const validateElectionWindow = ({ start, end, school }) => {
   const now = new Date();
@@ -162,22 +238,139 @@ export const getAdminElectionsByStatus = async (req, res) => {
 
 export const getAdminElectionById = async (req, res) => {
   try {
-    const election = await Election.findOne({
-      _id: req.params.electionId,
-      schoolId: req.schoolId,
-    });
+    const election = await Election.findOne({ _id: req.params.electionId, schoolId: req.schoolId });
 
     if (!election) {
       return sendError(res, 404, "Election not found");
     }
 
+    const [aspirants, storedVoterCount] = await Promise.all([
+      Aspirant.find({ electionId: election._id, schoolId: req.schoolId })
+        .sort({ electoralCategory: 1, name: 1 })
+        .select("name studentId programmeOfStudy level faculty electoralCategory imageUrl"),
+      Voter.countDocuments({ electionId: election._id, schoolId: req.schoolId }),
+    ]);
+
     return res.status(200).json({
-      ...mapElectionResponse(election),
+      _id: election._id.toString(),
+      title: election.title,
+      status: parseStatus(election.status),
+      startDate: election.startTime ? election.startTime.toISOString() : null,
+      endDate: election.endTime ? election.endTime.toISOString() : null,
       categories: (election.categories || []).map((category) => category.title),
-      votesCast: election.votes?.length || 0,
+      voterCount: storedVoterCount || election.eligibleVoters?.length || 0,
+      aspirants: aspirants.map(mapEditAspirantResponse),
     });
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load election");
+  }
+};
+
+export const getAdminElectionCategories = async (req, res) => {
+  try {
+    const election = await Election.findOne({
+      _id: req.params.electionId,
+      schoolId: req.schoolId,
+    }).select("schoolId subTitle categories votes");
+
+    if (!election) {
+      return sendError(res, 404, "Election not found");
+    }
+
+    const isInVotersList = await isStudentRegistryIdInElectionVoters({
+      election,
+      schoolId: req.schoolId,
+      studentRegistryId: req.ecUser?.studentId,
+    });
+
+    let categories = (election.categories || []).map((category) =>
+      mapAdminCategoryResponse({
+        election,
+        category,
+        adminId: req.ecUser?._id,
+        isInVotersList,
+      })
+    );
+
+    if (categories.length === 0) {
+      const aspirants = await Aspirant.find({
+        electionId: election._id,
+        schoolId: req.schoolId,
+      }).select("categoryId electoralCategory imageUrl");
+
+      categories = Array.from(
+        new Map(
+          aspirants.map((aspirant) => [
+            aspirant.categoryId?.toString() || aspirant.electoralCategory,
+            mapAdminCategoryResponse({
+              election,
+              category: {
+                _id: aspirant.categoryId?.toString() || aspirant.electoralCategory,
+                title: aspirant.electoralCategory,
+                subTitle: election.subTitle || "",
+                imageUrl: aspirant.imageUrl || "",
+              },
+              adminId: req.ecUser?._id,
+              isInVotersList,
+            }),
+          ])
+        ).values()
+      );
+    }
+
+    return res.status(200).json(categories);
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to load election categories");
+  }
+};
+
+export const getAdminElectionAspirants = async (req, res) => {
+  try {
+    const { electionId } = req.params;
+    const { categoryId } = req.query;
+
+    const election = await Election.findOne({
+      _id: electionId,
+      schoolId: req.schoolId,
+    }).select("_id votes");
+
+    if (!election) {
+      return sendError(res, 404, "Election not found");
+    }
+    const isInVotersList = await isStudentRegistryIdInElectionVoters({
+      election,
+      schoolId: req.schoolId,
+      studentRegistryId: req.ecUser?.studentId,
+    });
+
+    const filter = {
+      electionId,
+      schoolId: req.schoolId,
+    };
+
+    if (categoryId) {
+      filter.$or = [{ categoryId }, { electoralCategory: categoryId }];
+    }
+
+    const aspirants = await Aspirant.find(filter)
+      .sort({ electoralCategory: 1, name: 1 })
+      .select(
+        "name studentId programmeOfStudy level faculty electoralCategory imageUrl electionId categoryId voteCount"
+      );
+
+    return res.status(200).json(
+      aspirants.map((aspirant) => ({
+        ...mapEditAspirantResponse(aspirant),
+        hasVotedInCategory: hasAdminVotedInCategory({
+          election,
+          adminId: req.ecUser?._id,
+          categoryId: aspirant.categoryId?.toString() || aspirant.electoralCategory,
+        }),
+        isInVotersList,
+      }))
+    );
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to load election aspirants");
   }
 };
 
@@ -185,6 +378,7 @@ export const createAdminElection = async (req, res) => {
   try {
     const {
       title,
+      imageUrl = "",
       startDate,
       endDate,
       categories,
@@ -239,6 +433,7 @@ export const createAdminElection = async (req, res) => {
     const election = await Election.create({
       schoolId: req.schoolId,
       title,
+      imageUrl: String(imageUrl || "").trim(),
       startTime: start,
       endTime: end,
       categories: normalizeCategories(normalizedCategoryTitles),
@@ -255,10 +450,11 @@ export const createAdminElection = async (req, res) => {
       subTitle: school?.shortName || "",
     });
 
-    const aspirantDocs = buildAspirantDocs({
+    const aspirantDocs = await buildAspirantDocs({
       aspirants,
       election,
       schoolId: req.schoolId,
+      req,
     });
     if (aspirantDocs.length > 0) {
       await Aspirant.insertMany(aspirantDocs);
@@ -285,6 +481,53 @@ export const createAdminElection = async (req, res) => {
         aspirantsImported: aspirantDocs.length,
       },
     });
+    await notifySchoolAdmins({
+      schoolId: req.schoolId,
+      type: "election_created",
+      title: "Election created",
+      message: `${election.title} was created successfully.`,
+      priority: "normal",
+      data: { electionId: election._id.toString(), electionTitle: election.title },
+    });
+    if (voterDocs.length > 0) {
+      await notifySchoolAdmins({
+        schoolId: req.schoolId,
+        type: "voter_list_uploaded_successfully",
+        title: "Voter list uploaded",
+        message: `${voterDocs.length} voter records were uploaded for ${election.title}.`,
+        priority: "normal",
+        data: { electionId: election._id.toString(), count: voterDocs.length },
+      });
+    }
+    if (aspirantDocs.length > 0) {
+      await notifySchoolAdmins({
+        schoolId: req.schoolId,
+        type: "aspirant_list_uploaded_successfully",
+        title: "Aspirant list uploaded",
+        message: `${aspirantDocs.length} aspirant records were uploaded for ${election.title}.`,
+        priority: "normal",
+        data: { electionId: election._id.toString(), count: aspirantDocs.length },
+      });
+    }
+    if (election.status === "scheduled") {
+      await notifyEligibleStudentsForElection({
+        election,
+        type: "election_scheduled",
+        title: "Election scheduled",
+        message: `${election.title} has been scheduled.`,
+        priority: "normal",
+      });
+      await emitStudentScopedEvent({
+        eventName: "election:scheduled",
+        studentIds: await getEligibleStudentObjectIdsForElection(election),
+        payload: buildStudentHomeElectionEventPayload(election, "scheduled"),
+      });
+      await emitAdminSchoolEvent({
+        eventName: "admin:election:scheduled",
+        schoolId: election.schoolId,
+        payload: buildAdminHomeElectionEventPayload(election, "scheduled"),
+      });
+    }
 
     return res.status(201).json(mapElectionResponse(election));
   } catch (error) {
@@ -296,6 +539,7 @@ export const updateAdminElection = async (req, res) => {
   try {
     const { electionId } = req.params;
     const election = await Election.findOne({ _id: electionId, schoolId: req.schoolId });
+    const previousStatus = parseStatus(election?.status);
 
     if (!election) {
       return sendError(res, 404, "Election not found");
@@ -303,17 +547,25 @@ export const updateAdminElection = async (req, res) => {
 
     const {
       title,
+      imageUrl,
       startDate,
       endDate,
       categories,
       status,
+      keepExistingVoters,
       voters,
       aspirants,
       voterListUrl,
       aspirantListUrl,
     } = req.body;
+    const previousEligibleStudentIds = new Set(
+      (election.eligibleVoters || [])
+        .map((voter) => String(voter.studentId || "").trim())
+        .filter(Boolean)
+    );
 
     if (title != null) election.title = title;
+    if (imageUrl != null) election.imageUrl = String(imageUrl || "").trim();
     if (startDate != null) {
       const start = new Date(startDate);
       if (Number.isNaN(start.getTime())) {
@@ -339,6 +591,8 @@ export const updateAdminElection = async (req, res) => {
         return sendError(res, 400, "voters must be a non-empty array when provided");
       }
       election.eligibleVoters = normalizeEligibleVoters(voters);
+    } else if (keepExistingVoters === true) {
+      // Intentionally preserve the existing voter registry and voter count.
     }
     if (status != null) {
       const normalizedStatus = parseStatus(status);
@@ -422,18 +676,49 @@ export const updateAdminElection = async (req, res) => {
       if (voterDocs.length > 0) {
         await Voter.insertMany(voterDocs);
       }
+      const nextEligibleStudentIds = new Set(
+        normalizeEligibleVoters(voters)
+          .map((voter) => String(voter.studentId || "").trim())
+          .filter(Boolean)
+      );
+      const removedStudentIds = Array.from(previousEligibleStudentIds).filter(
+        (studentId) => !nextEligibleStudentIds.has(studentId)
+      );
+      await notifyRemovedStudentsFromElection({
+        schoolId: req.schoolId,
+        electionId: election._id,
+        electionTitle: election.title,
+        removedStudentRegistryIds: removedStudentIds,
+      });
+      await notifySchoolAdmins({
+        schoolId: req.schoolId,
+        type: "voter_list_uploaded_successfully",
+        title: "Voter list uploaded",
+        message: `${voterDocs.length} voter records were uploaded for ${election.title}.`,
+        priority: "normal",
+        data: { electionId: election._id.toString(), count: voterDocs.length },
+      });
     }
 
     if (aspirants != null) {
       await Aspirant.deleteMany({ electionId: election._id });
-      const aspirantDocs = buildAspirantDocs({
+      const aspirantDocs = await buildAspirantDocs({
         aspirants,
         election,
         schoolId: req.schoolId,
+        req,
       });
       if (aspirantDocs.length > 0) {
         await Aspirant.insertMany(aspirantDocs);
       }
+      await notifySchoolAdmins({
+        schoolId: req.schoolId,
+        type: "aspirant_list_uploaded_successfully",
+        title: "Aspirant list uploaded",
+        message: `${aspirantDocs.length} aspirant records were uploaded for ${election.title}.`,
+        priority: "normal",
+        data: { electionId: election._id.toString(), count: aspirantDocs.length },
+      });
     }
 
     await recordActivity({
@@ -443,6 +728,33 @@ export const updateAdminElection = async (req, res) => {
       action: "Election Updated",
       metadata: { electionId: election._id, status: election.status },
     });
+    await notifySchoolAdmins({
+      schoolId: req.schoolId,
+      type: "election_updated",
+      title: "Election updated",
+      message: `${election.title} was updated successfully.`,
+      priority: "normal",
+      data: { electionId: election._id.toString(), electionTitle: election.title },
+    });
+    if (previousStatus !== "scheduled" && election.status === "scheduled") {
+      await notifyEligibleStudentsForElection({
+        election,
+        type: "election_scheduled",
+        title: "Election scheduled",
+        message: `${election.title} has been scheduled.`,
+        priority: "normal",
+      });
+      await emitStudentScopedEvent({
+        eventName: "election:scheduled",
+        studentIds: await getEligibleStudentObjectIdsForElection(election),
+        payload: buildStudentHomeElectionEventPayload(election, "scheduled"),
+      });
+      await emitAdminSchoolEvent({
+        eventName: "admin:election:scheduled",
+        schoolId: election.schoolId,
+        payload: buildAdminHomeElectionEventPayload(election, "scheduled"),
+      });
+    }
     return res.status(200).json(mapElectionResponse(election));
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to update election");
@@ -495,6 +807,31 @@ export const scheduleAdminElection = async (req, res) => {
       action: "Election Scheduled",
       metadata: { electionId: election._id },
     });
+    await notifySchoolAdmins({
+      schoolId: req.schoolId,
+      type: "election_scheduled",
+      title: "Election scheduled",
+      message: `${election.title} has been scheduled.`,
+      priority: "normal",
+      data: { electionId: election._id.toString(), electionTitle: election.title },
+    });
+    await notifyEligibleStudentsForElection({
+      election,
+      type: "election_scheduled",
+      title: "Election scheduled",
+      message: `${election.title} has been scheduled.`,
+      priority: "normal",
+    });
+    await emitStudentScopedEvent({
+      eventName: "election:scheduled",
+      studentIds: await getEligibleStudentObjectIdsForElection(election),
+      payload: buildStudentHomeElectionEventPayload(election, "scheduled"),
+    });
+    await emitAdminSchoolEvent({
+      eventName: "admin:election:scheduled",
+      schoolId: election.schoolId,
+      payload: buildAdminHomeElectionEventPayload(election, "scheduled"),
+    });
     return res.status(200).json({});
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to schedule election");
@@ -512,8 +849,8 @@ export const deleteAdminElection = async (req, res) => {
       return sendError(res, 404, "Election not found");
     }
 
-    if (!["draft", "scheduled"].includes(parseStatus(election.status))) {
-      return sendError(res, 403, "Only draft or scheduled elections can be deleted");
+    if (parseStatus(election.status) === "active") {
+      return sendError(res, 403, "Active elections cannot be deleted");
     }
 
     await Voter.deleteMany({ electionId: election._id });
@@ -525,6 +862,14 @@ export const deleteAdminElection = async (req, res) => {
       schoolId: req.schoolId,
       action: "Election Deleted",
       metadata: { electionId: election._id },
+    });
+    await notifySchoolAdmins({
+      schoolId: req.schoolId,
+      type: "election_deleted",
+      title: "Election deleted",
+      message: `${election.title} was deleted.`,
+      priority: "normal",
+      data: { electionId: election._id.toString(), electionTitle: election.title },
     });
     return res.status(200).json({});
   } catch (error) {

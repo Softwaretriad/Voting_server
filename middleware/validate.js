@@ -27,7 +27,6 @@ export const validators = {
       !body.phone ||
       !body.universityFullName ||
       !body.department ||
-      body.currentYearOfStudy == null ||
       !body.programOfStudy ||
       body.votingPin == null
     ) {
@@ -62,6 +61,10 @@ export const validators = {
     }
     return null;
   },
+  refreshSession: (req) =>
+    req.body?.refreshToken ? null : "refreshToken is required",
+  logoutSession: (req) =>
+    req.body?.refreshToken ? null : "refreshToken is required",
   forgotVotingPin: (req) =>
     normalizeEmail(req.body?.email) ? null : "email is required",
   verifyVotingPinOtp: (req) =>
@@ -83,6 +86,115 @@ export const validators = {
     isFourDigitPin(req.body?.votingPin)
       ? null
       : "studentId, electionId, aspirantId, and a valid 4-digit votingPin are required",
+  castAdminVote: (req) =>
+    req.body?.adminUserId && req.body?.electionId && req.body?.aspirantId
+      ? null
+      : "adminUserId, electionId, and aspirantId are required",
+  inviteAdminMembers: (req) => {
+    const emails = req.body?.emails;
+    if (!Array.isArray(emails) || emails.length === 0) {
+      return "emails must be a non-empty array";
+    }
+
+    const hasInvalidEmail = emails.some((email) => !normalizeEmail(email));
+    if (hasInvalidEmail) {
+      return "Each email in emails must be valid";
+    }
+
+    return null;
+  },
+  completeAdminInvite: (req) => {
+    if (!req.body?.token || !req.body?.name || !req.body?.password) {
+      return "token, name, and password are required";
+    }
+    if (!String(req.body.name).trim()) {
+      return "name cannot be empty";
+    }
+    if (!isStrongPassword(req.body.password)) {
+      return strongPasswordMessage;
+    }
+    return null;
+  },
+  updateStudentProfile: (req) => {
+    const body = req.body || {};
+    const hasEditableField =
+      body.firstName != null ||
+      body.lastName != null ||
+      body.phoneNumber != null ||
+      body.phone != null;
+
+    if (!hasEditableField) {
+      return "At least one of firstName, lastName, or phoneNumber is required";
+    }
+
+    if (body.firstName != null && !String(body.firstName).trim()) {
+      return "firstName cannot be empty";
+    }
+    if (body.lastName != null && !String(body.lastName).trim()) {
+      return "lastName cannot be empty";
+    }
+
+    const resolvedPhone = body.phoneNumber != null ? body.phoneNumber : body.phone;
+    if (resolvedPhone != null && !String(resolvedPhone).trim()) {
+      return "phoneNumber cannot be empty";
+    }
+
+    return null;
+  },
+  deleteStudentAccount: (req) =>
+    req.body?.password ? null : "password is required",
+  changeStudentEmail: (req) =>
+    normalizeEmail(req.body?.email) ? null : "email must be a valid non-empty email address",
+  notificationPreferences: (req) => {
+    const body = req.body || {};
+    const allowedKeys = [
+      "notificationsEnabled",
+      "electionAlertsEnabled",
+      "resultsEnabled",
+      "announcementsEnabled",
+      "voterActivityEnabled",
+    ];
+
+    const providedKeys = Object.keys(body);
+    if (providedKeys.length === 0) {
+      return "At least one notification preference field is required";
+    }
+
+    const invalidKey = providedKeys.find((key) => !allowedKeys.includes(key));
+    if (invalidKey) {
+      return `Unsupported notification preference field: ${invalidKey}`;
+    }
+
+    const invalidValueKey = providedKeys.find((key) => typeof body[key] !== "boolean");
+    if (invalidValueKey) {
+      return `${invalidValueKey} must be a boolean`;
+    }
+
+    return null;
+  },
+  registerDeviceToken: (req) => {
+    const body = req.body || {};
+    if (!body.token || !String(body.token).trim()) {
+      return "token is required";
+    }
+
+    const allowedPlatforms = ["android", "ios", "web", "unknown"];
+    if (
+      body.platform != null &&
+      !allowedPlatforms.includes(String(body.platform).trim().toLowerCase())
+    ) {
+      return "platform must be one of android, ios, web, or unknown";
+    }
+
+    if (
+      body.notificationsEnabled != null &&
+      typeof body.notificationsEnabled !== "boolean"
+    ) {
+      return "notificationsEnabled must be a boolean";
+    }
+
+    return null;
+  },
   adminElectionList: (req) =>
     ["active", "scheduled", "draft", "closed"].includes(req.query?.status)
       ? null
@@ -98,6 +210,9 @@ export const validators = {
       !["draft", "scheduled"].includes(body.status)
     ) {
       return "title, startDate, endDate, categories, and status are required";
+    }
+    if (body.imageUrl != null && typeof body.imageUrl !== "string") {
+      return "imageUrl must be a string when provided";
     }
     if (body.voters != null && !Array.isArray(body.voters)) {
       return "voters must be an array when provided";

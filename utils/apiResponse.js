@@ -5,7 +5,7 @@ export const sendError = (res, statusCode, message, extra = {}) =>
     ...extra,
   });
 
-export const sanitizeStudent = (student) => ({
+export const sanitizeStudent = (student, extra = {}) => ({
   id: student._id.toString(),
   email: student.email,
   isEmailVerified: student.isEmailVerified,
@@ -17,9 +17,10 @@ export const sanitizeStudent = (student) => ({
   department: student.department,
   currentYearOfStudy: student.currentYearOfStudy,
   programOfStudy: student.programOfStudy,
+  universityLogoUrl: extra.universityLogoUrl || "",
 });
 
-export const sanitizeStudentProfile = (student) => ({
+export const sanitizeStudentProfile = (student, extra = {}) => ({
   id: student._id.toString(),
   email: student.email,
   isEmailVerified: student.isEmailVerified,
@@ -31,4 +32,5 @@ export const sanitizeStudentProfile = (student) => ({
   department: student.department,
   currentYearOfStudy: student.currentYearOfStudy,
   programOfStudy: student.programOfStudy,
+  universityLogoUrl: extra.universityLogoUrl || "",
 });

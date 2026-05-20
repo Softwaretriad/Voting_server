@@ -1,12 +1,14 @@
 import ECUser from "../models/ECUser.js";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
-import jwt from "jsonwebtoken";
 import sendEmail from "../utils/sendEmail.js";
 import { sendError, sanitizeStudent } from "../utils/apiResponse.js";
+import { resolveLogoUrl } from "../utils/logoUrl.js";
 import {
   createOtp,
   getOtpExpiry,
+  signAdminAccessToken,
+  signAdminRefreshToken,
   signAccessToken,
   signRefreshToken,
   verifyToken,
@@ -21,11 +23,44 @@ import {
   strongPasswordMessage,
 } from "../utils/security.js";
 import { recordActivity } from "../utils/activityLog.js";
+import {
+  notifyAdmin,
+  notifyStudent,
+} from "../utils/notificationService.js";
+
+const getAdminFirstName = (account) => account?.firstName || account?.firstname || "";
+
+const getAdminLastName = (account) => account?.lastName || "";
+
+const getAdminDisplayName = (account) =>
+  [getAdminFirstName(account), getAdminLastName(account)].filter(Boolean).join(" ").trim();
+
+const sanitizeAdmin = (admin) => ({
+  id: admin._id,
+  firstName: getAdminFirstName(admin),
+  lastName: getAdminLastName(admin),
+  name: getAdminDisplayName(admin),
+  email: admin.email,
+  schoolId: admin.schoolId,
+});
+
+const findAdminPrincipalById = async (userId) => {
+  const studentAdmin = await Student.findOne({
+    _id: userId,
+    accountRole: "admin",
+  });
+  if (studentAdmin) {
+    return studentAdmin;
+  }
+
+  return ECUser.findById(userId);
+};
 
 const sendVerificationOtp = async (student) => {
   const otp = createOtp();
+  const expiresAt = getOtpExpiry();
   student.emailVerificationOtp = await hashSecret(otp);
-  student.emailVerificationOtpExpires = getOtpExpiry();
+  student.emailVerificationOtpExpires = expiresAt;
   await student.save();
 
   await sendEmail(
@@ -33,11 +68,32 @@ const sendVerificationOtp = async (student) => {
     "Verify your MyUniVote email",
     `Your MyUniVote verification code is ${otp}. It expires in 10 minutes.`
   );
+
+  return { otp, expiresAt };
 };
 
-const issueSession = async (student) => {
+const getDebugOtpPayload = (req, otp, expiresAt) => {
+  const wantsDebugOtp = String(req.headers["x-debug-otp"] || "").toLowerCase() === "true";
+  if (process.env.NODE_ENV === "production" || !wantsDebugOtp) {
+    return {};
+  }
+
+  return {
+    debugOtp: otp,
+    debugOtpExpiresAt: expiresAt?.toISOString?.() || null,
+  };
+};
+
+const wantsDebugOtp = (req) =>
+  process.env.NODE_ENV !== "production" &&
+  String(req.headers["x-debug-otp"] || "").toLowerCase() === "true";
+
+const issueSession = async (req, student) => {
   const accessToken = signAccessToken(student);
   const refreshToken = signRefreshToken(student);
+  const school = student.schoolId
+    ? await School.findById(student.schoolId).select("logoUrl")
+    : null;
 
   student.refreshToken = await hashSecret(refreshToken);
   await student.save();
@@ -45,33 +101,27 @@ const issueSession = async (student) => {
   return {
     accessToken,
     refreshToken,
-    user: sanitizeStudent(student),
+    user: sanitizeStudent(student, {
+      universityLogoUrl: resolveLogoUrl(req, school?.logoUrl),
+    }),
     schoolId: student.schoolId,
     role: "student",
   };
 };
 
 const issueAdminSession = async (admin) => {
-  const token = jwt.sign(
-    {
-      userId: admin._id,
-      schoolId: admin.schoolId,
-      role: "admin",
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: "3hours" }
-  );
+  const accessToken = signAdminAccessToken(admin);
+  const refreshToken = signAdminRefreshToken(admin);
+
+  admin.refreshToken = await hashSecret(refreshToken);
+  await admin.save();
 
   return {
-    refreshToken: token,
-    accessToken: token,
+    token: accessToken,
+    refreshToken,
+    accessToken,
     role: "admin",
-    user: {
-      id: admin._id,
-      name: admin.name,
-      email: admin.email,
-      schoolId: admin.schoolId,
-    },
+    user: sanitizeAdmin(admin),
   };
 };
 
@@ -130,7 +180,6 @@ export const registerStudent = async (req, res) => {
       !phone ||
       !universityFullName ||
       !department ||
-      currentYearOfStudy == null ||
       !programOfStudy ||
       votingPin == null
     ) {
@@ -183,12 +232,23 @@ export const registerStudent = async (req, res) => {
       schoolId: school._id,
       universityFullName,
       department,
-      currentYearOfStudy: Number(currentYearOfStudy),
+      currentYearOfStudy:
+        currentYearOfStudy == null || currentYearOfStudy === ""
+          ? null
+          : Number(currentYearOfStudy),
       programOfStudy,
       votingPin: String(votingPin),
     });
 
-    await sendVerificationOtp(student);
+    const { otp, expiresAt } = await sendVerificationOtp(student);
+    await notifyStudent({
+      studentId: student._id,
+      schoolId: student.schoolId,
+      type: "account_created_verification_sent",
+      title: "Account created",
+      message: "Your verification OTP has been sent to your email address.",
+      priority: "high",
+    });
     await recordActivity({
       actorType: "student",
       actorId: student._id,
@@ -196,7 +256,10 @@ export const registerStudent = async (req, res) => {
       action: "Student Registration Initiated",
     });
 
-    return res.status(201).json({ email: student.email });
+    return res.status(201).json({
+      email: student.email,
+      ...getDebugOtpPayload(req, otp, expiresAt),
+    });
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to register student");
   }
@@ -206,14 +269,36 @@ export const verifyEmail = async (req, res) => {
   try {
     const { email, otp } = req.body;
     const student = await Student.findOne({ email: normalizeEmail(email) });
+    const otpMatches = student
+      ? await compareSecret(otp, student.emailVerificationOtp)
+      : false;
+    const expiresAt = student?.emailVerificationOtpExpires || null;
+    const isExpired = expiresAt ? expiresAt < new Date() : true;
 
     if (
       !student ||
-      !(await compareSecret(otp, student.emailVerificationOtp)) ||
-      !student.emailVerificationOtpExpires ||
-      student.emailVerificationOtpExpires < new Date()
+      !otpMatches ||
+      !expiresAt ||
+      isExpired
     ) {
-      return sendError(res, 400, "Invalid or expired OTP");
+      return sendError(
+        res,
+        400,
+        "Invalid or expired OTP",
+        wantsDebugOtp(req)
+          ? {
+              debug: {
+                studentFound: Boolean(student),
+                storedOtpExists: Boolean(student?.emailVerificationOtp),
+                otpMatches,
+                expiresAt: expiresAt?.toISOString?.() || null,
+                isExpired,
+                now: new Date().toISOString(),
+                submittedOtp: String(otp || ""),
+              },
+            }
+          : {}
+      );
     }
 
     student.isEmailVerified = true;
@@ -227,8 +312,16 @@ export const verifyEmail = async (req, res) => {
       schoolId: student.schoolId,
       action: "Student Email Verified",
     });
+    await notifyStudent({
+      studentId: student._id,
+      schoolId: student.schoolId,
+      type: "email_verified_successfully",
+      title: "Email verified",
+      message: "Your email has been verified successfully.",
+      priority: "normal",
+    });
 
-    const session = await issueSession(student);
+    const session = await issueSession(req, student);
     return res.status(200).json(session);
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to verify email");
@@ -244,15 +337,25 @@ export const resendVerificationOtp = async (req, res) => {
       return res.status(200).json({});
     }
 
-    await sendVerificationOtp(student);
+    const { otp, expiresAt } = await sendVerificationOtp(student);
     await recordActivity({
       actorType: "student",
       actorId: student._id,
       schoolId: student.schoolId,
       action: "Student Verification OTP Resent",
     });
+    await notifyStudent({
+      studentId: student._id,
+      schoolId: student.schoolId,
+      type: "verification_otp_resent",
+      title: "Verification code resent",
+      message: "A new verification OTP has been sent to your email.",
+      priority: "normal",
+    });
 
-    return res.status(200).json({});
+    return res.status(200).json({
+      ...getDebugOtpPayload(req, otp, expiresAt),
+    });
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to resend verification OTP");
   }
@@ -280,7 +383,26 @@ export const loginStudent = async (req, res) => {
         );
       }
 
-      const session = await issueSession(student);
+      if (student.accountRole === "admin") {
+        const session = await issueAdminSession(student);
+        await recordActivity({
+          actorType: "admin",
+          actorId: student._id,
+          schoolId: student.schoolId,
+          action: "Admin Login Success",
+        });
+        await notifyAdmin({
+          adminId: student._id,
+          schoolId: student.schoolId,
+          type: "admin_login_success",
+          title: "Login successful",
+          message: "You signed in successfully.",
+          priority: "low",
+        });
+        return res.status(200).json(session);
+      }
+
+      const session = await issueSession(req, student);
       await recordActivity({
         actorType: "student",
         actorId: student._id,
@@ -297,6 +419,14 @@ export const loginStudent = async (req, res) => {
       ? await admin.matchPassword(password || "")
       : false;
 
+    if (admin && admin.status === "pending") {
+      return sendError(
+        res,
+        403,
+        "Your admin invitation has not been completed yet. Please use the password setup link sent to your email."
+      );
+    }
+
     if (adminPasswordMatches) {
       const session = await issueAdminSession(admin);
       await recordActivity({
@@ -304,6 +434,14 @@ export const loginStudent = async (req, res) => {
         actorId: admin._id,
         schoolId: admin.schoolId,
         action: "Admin Login Success",
+      });
+      await notifyAdmin({
+        adminId: admin._id,
+        schoolId: admin.schoolId,
+        type: "admin_login_success",
+        title: "Login successful",
+        message: "You signed in successfully.",
+        priority: "low",
       });
       return res.status(200).json(session);
     }
@@ -316,7 +454,7 @@ export const loginStudent = async (req, res) => {
 
 export const logoutStudent = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const { refreshToken } = req.body || {};
     const authHeader = req.headers.authorization;
 
     if (!refreshToken) {
@@ -327,17 +465,37 @@ export const logoutStudent = async (req, res) => {
       return sendError(res, 401, "Authorization header is required");
     }
 
-    const decoded = verifyToken(authHeader.split(" ")[1]);
+    const accessToken = authHeader.split(" ")[1];
+    const decoded = verifyToken(accessToken);
+
+    if (decoded.role === "admin") {
+      const admin = await findAdminPrincipalById(decoded.userId);
+      if (!admin) {
+        return sendError(res, 401, "Admin user not found");
+      }
+
+      if (!admin.refreshToken || !(await compareSecret(refreshToken, admin.refreshToken))) {
+        return sendError(res, 401, "Invalid refresh token");
+      }
+
+      admin.refreshToken = null;
+      await admin.save();
+
+      return res.status(200).json({});
+    }
+
     const student = await Student.findById(decoded.studentId);
 
     if (!student) {
       return sendError(res, 401, "Student not found");
     }
 
-    if (await compareSecret(refreshToken, student.refreshToken)) {
-      student.refreshToken = null;
-      await student.save();
+    if (!student.refreshToken || !(await compareSecret(refreshToken, student.refreshToken))) {
+      return sendError(res, 401, "Invalid refresh token");
     }
+
+    student.refreshToken = null;
+    await student.save();
 
     return res.status(200).json({});
   } catch {
@@ -355,12 +513,28 @@ export const checkTokens = async (req, res) => {
 
     try {
       const decodedAccess = verifyToken(accessToken);
-      const student = await Student.findById(decodedAccess.studentId);
+      if (decodedAccess.role === "admin") {
+        const admin = await findAdminPrincipalById(decodedAccess.userId);
+        if (admin && admin.refreshToken && (await compareSecret(refreshToken, admin.refreshToken))) {
+          return res.status(200).json({
+            user: sanitizeAdmin(admin),
+            role: "admin",
+          });
+        }
+      } else {
+        const student = await Student.findById(decodedAccess.studentId);
 
-      if (student && (await compareSecret(refreshToken, student.refreshToken))) {
-        return res.status(200).json({
-          user: sanitizeStudent(student),
-        });
+        if (student && (await compareSecret(refreshToken, student.refreshToken))) {
+          return res.status(200).json({
+            user: sanitizeStudent(student, {
+              universityLogoUrl: resolveLogoUrl(
+                req,
+                (await School.findById(student.schoolId).select("logoUrl"))?.logoUrl
+              ),
+            }),
+            role: "student",
+          });
+        }
       }
     } catch {
       // Fall through to refresh flow.
@@ -369,6 +543,16 @@ export const checkTokens = async (req, res) => {
     const decodedRefresh = verifyToken(refreshToken);
     if (decodedRefresh.type !== "refresh") {
       return sendError(res, 401, "Invalid refresh token");
+    }
+
+    if (decodedRefresh.role === "admin") {
+      const admin = await findAdminPrincipalById(decodedRefresh.userId);
+      if (!admin || !admin.refreshToken || !(await compareSecret(refreshToken, admin.refreshToken))) {
+        return sendError(res, 401, "Invalid refresh token");
+      }
+
+      const newSession = await issueAdminSession(admin);
+      return res.status(200).json(newSession);
     }
 
     const student = await Student.findById(decodedRefresh.studentId);
@@ -385,10 +569,66 @@ export const checkTokens = async (req, res) => {
     return res.status(200).json({
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
-      user: sanitizeStudent(student),
+      user: sanitizeStudent(student, {
+        universityLogoUrl: resolveLogoUrl(
+          req,
+          (await School.findById(student.schoolId).select("logoUrl"))?.logoUrl
+        ),
+      }),
     });
   } catch {
     return sendError(res, 401, "Invalid or expired tokens");
+  }
+};
+
+export const refreshSession = async (req, res) => {
+  try {
+    const { refreshToken } = req.body || {};
+
+    if (!refreshToken) {
+      return sendError(res, 400, "refreshToken is required");
+    }
+
+    const decodedRefresh = verifyToken(refreshToken);
+    if (decodedRefresh.type !== "refresh") {
+      return sendError(res, 401, "Invalid refresh token");
+    }
+
+    if (decodedRefresh.role === "admin") {
+      const admin = await findAdminPrincipalById(decodedRefresh.userId);
+      if (!admin || !admin.refreshToken || !(await compareSecret(refreshToken, admin.refreshToken))) {
+        return sendError(res, 401, "Invalid refresh token");
+      }
+
+      const newSession = await issueAdminSession(admin);
+      return res.status(200).json(newSession);
+    }
+
+    const student = await Student.findById(decodedRefresh.studentId);
+    if (!student || !student.refreshToken || !(await compareSecret(refreshToken, student.refreshToken))) {
+      return sendError(res, 401, "Invalid refresh token");
+    }
+
+    const accessToken = signAccessToken(student);
+    const nextRefreshToken = signRefreshToken(student);
+
+    student.refreshToken = await hashSecret(nextRefreshToken);
+    await student.save();
+
+    return res.status(200).json({
+      accessToken,
+      refreshToken: nextRefreshToken,
+      user: sanitizeStudent(student, {
+        universityLogoUrl: resolveLogoUrl(
+          req,
+          (await School.findById(student.schoolId).select("logoUrl"))?.logoUrl
+        ),
+      }),
+      schoolId: student.schoolId,
+      role: "student",
+    });
+  } catch {
+    return sendError(res, 401, "Invalid or expired refresh token");
   }
 };
 
@@ -418,6 +658,14 @@ export const forgotPassword = async (req, res) => {
       schoolId: student.schoolId,
       action: "Student Password Reset Requested",
     });
+    await notifyStudent({
+      studentId: student._id,
+      schoolId: student.schoolId,
+      type: "password_reset_requested",
+      title: "Password reset requested",
+      message: "A password reset OTP has been sent to your email.",
+      priority: "high",
+    });
 
     return res.status(200).json({});
   } catch (error) {
@@ -429,6 +677,20 @@ export const verifyResetOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
     const student = await Student.findOne({ email: normalizeEmail(email) });
+
+    if (
+      student &&
+      student.emailVerificationOtp &&
+      student.emailVerificationOtpExpires &&
+      student.emailVerificationOtpExpires > new Date() &&
+      !student.passwordResetOtp
+    ) {
+      return sendError(
+        res,
+        400,
+        "This OTP is for email verification. Use /auth/verify-email instead."
+      );
+    }
 
     if (
       !student ||
@@ -493,6 +755,14 @@ export const resetPassword = async (req, res) => {
       actorId: student._id,
       schoolId: student.schoolId,
       action: "Student Password Reset Completed",
+    });
+    await notifyStudent({
+      studentId: student._id,
+      schoolId: student.schoolId,
+      type: "password_reset_completed",
+      title: "Password reset completed",
+      message: "Your password has been changed successfully.",
+      priority: "high",
     });
 
     return res.status(200).json({});

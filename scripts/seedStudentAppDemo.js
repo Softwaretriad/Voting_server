@@ -5,7 +5,6 @@ import Student from "../models/Student.js";
 import Election from "../models/Election.js";
 import Aspirant from "../models/Aspirant.js";
 import Notification from "../models/Notification.js";
-import News from "../models/News.js";
 
 dotenv.config();
 
@@ -107,16 +106,6 @@ const seed = async () => {
     title: "Election Starts Today",
     message: "Voting is now open for the SRC Presidential Election.",
     isRead: false,
-  });
-
-  await News.create({
-    schoolId: school._id,
-    title: "Demo Campus Debate Draws Big Crowd",
-    description:
-      "Students turned out in strong numbers for the pre-election debate on campus.",
-    imageUrl: "https://placehold.co/640x360/png",
-    publishedAt: new Date(),
-    isTrending: true,
   });
 
   console.log("Demo seed complete");

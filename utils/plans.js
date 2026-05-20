@@ -14,8 +14,7 @@ const plans = {
 export const subscriptionTerms = {
   "1_month": { label: "1 Month", months: 1 },
   one_off_election: { label: "One-Off Election", months: null },
-  "3_months": { label: "3 Months", months: 3 },
-  "6_months": { label: "6 Months", months: 6 },
+  "4_months": { label: "4 Months", months: 4 },
   "1_year": { label: "1 Year", months: 12 },
 };
 

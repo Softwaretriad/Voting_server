@@ -3,10 +3,22 @@ import Election from "../models/Election.js";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
 import sendEmail from "./sendEmail.js";
+import {
+  emitAdminSchoolEvent,
+  emitElectionMonitorUpdate,
+  emitStudentScopedEvent,
+} from "./liveMonitorSocket.js";
 import { createElectionResultsPdfBuffer } from "./pdfResults.js";
 import { syncSchoolSubscriptionState } from "./plans.js";
+import {
+  getEligibleStudentObjectIdsForElection,
+  notifyEligibleStudentsForElection,
+  notifySchoolAdmins,
+} from "./notificationService.js";
 
 const MAX_EMAIL_ATTEMPTS = 3;
+const STARTING_SOON_WINDOW_MS = 60 * 60 * 1000;
+const CLOSING_SOON_WINDOW_MS = 60 * 60 * 1000;
 
 const getElectionDateLabel = (election) => {
   const start = election.startTime
@@ -18,6 +30,31 @@ const getElectionDateLabel = (election) => {
 
   return start === end ? start : `${start} to ${end}`;
 };
+
+const buildStudentHomeElectionEventPayload = (election, statusOverride = null) => ({
+  electionId: election._id.toString(),
+  status: statusOverride || election.status,
+  title: election.title,
+  schoolId: election.schoolId?.toString?.() || election.schoolId,
+  startDate: election.startTime ? election.startTime.toISOString() : null,
+  endDate: election.endTime ? election.endTime.toISOString() : null,
+});
+
+const buildStudentReportElectionEventPayload = (election, statusOverride = null) => ({
+  electionId: election._id.toString(),
+  status: statusOverride || election.status,
+  title: election.title,
+  schoolId: election.schoolId?.toString?.() || election.schoolId,
+});
+
+const buildAdminHomeElectionEventPayload = (election, statusOverride = null) => ({
+  electionId: election._id.toString(),
+  status: statusOverride || election.status,
+  title: election.title,
+  schoolId: election.schoolId?.toString?.() || election.schoolId,
+  startDate: election.startTime ? election.startTime.toISOString() : null,
+  endDate: election.endTime ? election.endTime.toISOString() : null,
+});
 
 const getCategorySummaries = async (election) => {
   const aspirants = await Aspirant.find({ electionId: election._id }).sort({
@@ -86,6 +123,28 @@ const sendResultsEmailWithRetry = async ({ student, election, pdfBuffer }) => {
 
 export const processScheduledElections = async ({ forceElectionIds = [] } = {}) => {
   const now = new Date();
+  const startingSoonBoundary = new Date(now.getTime() + STARTING_SOON_WINDOW_MS);
+  const startingSoonElections = await Election.find({
+    status: "scheduled",
+    startTime: { $gt: now, $lte: startingSoonBoundary },
+    "notifications.startingSoonSentAt": null,
+  });
+
+  for (const election of startingSoonElections) {
+    await notifyEligibleStudentsForElection({
+      election,
+      type: "election_starting_soon",
+      title: "Election starting soon",
+      message: `${election.title} starts within the next hour.`,
+      priority: "high",
+    });
+    election.notifications = {
+      ...(election.notifications || {}),
+      startingSoonSentAt: new Date(),
+    };
+    await election.save();
+  }
+
   const filter =
     forceElectionIds.length > 0
       ? { _id: { $in: forceElectionIds } }
@@ -100,7 +159,43 @@ export const processScheduledElections = async ({ forceElectionIds = [] } = {}) 
     }
 
     election.status = "active";
+    election.notifications = {
+      ...(election.notifications || {}),
+      liveSentAt: election.notifications?.liveSentAt || new Date(),
+    };
     await election.save();
+    const eligibleStudentIds = await getEligibleStudentObjectIdsForElection(election);
+    await notifySchoolAdmins({
+      schoolId: election.schoolId,
+      type: "election_went_live",
+      title: "Election is now live",
+      message: `${election.title} is now live.`,
+      priority: "high",
+      data: { electionId: election._id.toString(), electionTitle: election.title },
+    });
+    await notifyEligibleStudentsForElection({
+      election,
+      type: "election_is_now_live",
+      title: "Election is now live",
+      message: `${election.title} is now live.`,
+      priority: "high",
+    });
+    await emitStudentScopedEvent({
+      eventName: "election:activated",
+      studentIds: eligibleStudentIds,
+      payload: buildStudentHomeElectionEventPayload(election, "active"),
+    });
+    await emitAdminSchoolEvent({
+      eventName: "admin:election:activated",
+      schoolId: election.schoolId,
+      payload: buildAdminHomeElectionEventPayload(election, "active"),
+    });
+    await emitStudentScopedEvent({
+      eventName: "report:election:activated",
+      studentIds: eligibleStudentIds,
+      payload: buildStudentReportElectionEventPayload(election, "active"),
+    });
+    await emitElectionMonitorUpdate(election._id.toString());
 
     activated.push({
       electionId: election._id.toString(),
@@ -114,6 +209,28 @@ export const processScheduledElections = async ({ forceElectionIds = [] } = {}) 
 
 export const processElectionResults = async ({ forceElectionIds = [] } = {}) => {
   const now = new Date();
+  const closingSoonBoundary = new Date(now.getTime() + CLOSING_SOON_WINDOW_MS);
+  const closingSoonElections = await Election.find({
+    status: "active",
+    endTime: { $gt: now, $lte: closingSoonBoundary },
+    "notifications.closingSoonSentAt": null,
+  });
+
+  for (const election of closingSoonElections) {
+    await notifyEligibleStudentsForElection({
+      election,
+      type: "election_closing_soon",
+      title: "Election closing soon",
+      message: `${election.title} closes within the next hour.`,
+      priority: "high",
+    });
+    election.notifications = {
+      ...(election.notifications || {}),
+      closingSoonSentAt: new Date(),
+    };
+    await election.save();
+  }
+
   const filter =
     forceElectionIds.length > 0
       ? { _id: { $in: forceElectionIds } }
@@ -188,6 +305,12 @@ export const processElectionResults = async ({ forceElectionIds = [] } = {}) => 
       recipientsSent: sentCount,
       failedRecipients,
     };
+    election.notifications = {
+      ...(election.notifications || {}),
+      closedSentAt: election.notifications?.closedSentAt || new Date(),
+      resultsPublishedSentAt:
+        election.notifications?.resultsPublishedSentAt || new Date(),
+    };
     if (school?.subscriptionTerm === "one_off_election") {
       school.oneOffElectionConsumed = true;
       school.subscriptionActive = false;
@@ -196,6 +319,56 @@ export const processElectionResults = async ({ forceElectionIds = [] } = {}) => 
       await school.save();
     }
     await election.save();
+    const eligibleStudentIds = await getEligibleStudentObjectIdsForElection(election);
+    await notifySchoolAdmins({
+      schoolId: election.schoolId,
+      type: "election_closed",
+      title: "Election closed",
+      message: `${election.title} has closed.`,
+      priority: "high",
+      data: { electionId: election._id.toString(), electionTitle: election.title },
+    });
+    await notifySchoolAdmins({
+      schoolId: election.schoolId,
+      type: "results_generated",
+      title: "Results generated",
+      message: `Results were generated for ${election.title}.`,
+      priority: "high",
+      data: { electionId: election._id.toString(), electionTitle: election.title },
+    });
+    await notifySchoolAdmins({
+      schoolId: election.schoolId,
+      type: "results_report_ready",
+      title: "Results report ready",
+      message: `The results report for ${election.title} is ready.`,
+      priority: "high",
+      data: { electionId: election._id.toString(), electionTitle: election.title },
+    });
+    await notifyEligibleStudentsForElection({
+      election,
+      type: "election_closed",
+      title: "Election closed",
+      message: `${election.title} has closed.`,
+      priority: "high",
+    });
+    await notifyEligibleStudentsForElection({
+      election,
+      type: "results_published",
+      title: "Results published",
+      message: `Results for ${election.title} have been published.`,
+      priority: "high",
+    });
+    await emitStudentScopedEvent({
+      eventName: "report:election:closed",
+      studentIds: eligibleStudentIds,
+      payload: buildStudentReportElectionEventPayload(election, "closed"),
+    });
+    await emitAdminSchoolEvent({
+      eventName: "admin:election:closed",
+      schoolId: election.schoolId,
+      payload: buildAdminHomeElectionEventPayload(election, "closed"),
+    });
+    await emitElectionMonitorUpdate(election._id.toString());
 
     processed.push({
       electionId: election._id.toString(),

@@ -1,9 +1,51 @@
 import express from "express";
-import { getStudentProfile } from "../controllers/studentController.js";
+import {
+  changeStudentEmail,
+  deleteStudentAccount,
+  getStudentProfile,
+  getStudentVoteHistory,
+  updateStudentProfile,
+} from "../controllers/studentController.js";
+import {
+  getStudentNotificationPreferences,
+  updateStudentNotificationPreferences,
+} from "../controllers/notificationController.js";
+import { protectDeleteAccount } from "../middleware/authDeleteAccount.js";
 import { protectStudent } from "../middleware/authStudent.js";
+import { validate, validators } from "../middleware/validate.js";
 
 const router = express.Router();
 
 router.get("/:userId", protectStudent, getStudentProfile);
+router.patch(
+  "/:userId",
+  protectStudent,
+  validate(validators.updateStudentProfile),
+  updateStudentProfile
+);
+router.patch(
+  "/:userId/email",
+  protectStudent,
+  validate(validators.changeStudentEmail),
+  changeStudentEmail
+);
+router.delete(
+  "/:userId",
+  protectDeleteAccount,
+  validate(validators.deleteStudentAccount),
+  deleteStudentAccount
+);
+router.get("/:userId/vote-history", protectStudent, getStudentVoteHistory);
+router.get(
+  "/:userId/notification-preferences",
+  protectStudent,
+  getStudentNotificationPreferences
+);
+router.patch(
+  "/:userId/notification-preferences",
+  protectStudent,
+  validate(validators.notificationPreferences),
+  updateStudentNotificationPreferences
+);
 
 export default router;

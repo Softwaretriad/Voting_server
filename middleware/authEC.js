@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import ECUser from "../models/ECUser.js";
+import Student from "../models/Student.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -18,13 +19,19 @@ export const protect = async (req, res, next) => {
       return res.status(401).json({ error: "Invalid token scope" });
     }
 
-    const ecUser = await ECUser.findById(decoded.userId).select("-password");
+    let ecUser = await ECUser.findById(decoded.userId).select("-password");
     if (!ecUser) {
-      return res.status(401).json({ error: "EC user not found" });
+      ecUser = await Student.findOne({
+        _id: decoded.userId,
+        accountRole: "admin",
+      }).select("-password -votingPin");
+    }
+    if (!ecUser) {
+      return res.status(401).json({ error: "Admin user not found" });
     }
 
     req.ecUser = ecUser;
-    req.schoolId = decoded.schoolId;
+    req.schoolId = decoded.schoolId || ecUser.schoolId;
 
     next();
   } catch (error) {

@@ -4,6 +4,7 @@ import {
   forgotPassword,
   loginStudent,
   logoutStudent,
+  refreshSession,
   registerStudent,
   resendVerificationOtp,
   resetPassword,
@@ -38,7 +39,8 @@ router.post(
   validate(validators.loginStudent),
   loginStudent
 );
-router.post("/logout", logoutStudent);
+router.post("/logout", validate(validators.logoutSession), logoutStudent);
+router.post("/refresh", validate(validators.refreshSession), refreshSession);
 router.post("/check-tokens", checkTokens);
 router.post(
   "/forgot-password",

@@ -159,11 +159,6 @@ const run = async () => {
   });
   assertStatus(notificationsResult, 200, "GET /notifications/:userId");
 
-  const newsResult = await request("/news/trending", {
-    headers: authHeaders(),
-  });
-  assertStatus(newsResult, 200, "GET /news/trending");
-
   let electionId = activeResult.body[0]?._id;
   if (!electionId) {
     const fallbackElection = await Election.create({
@@ -453,7 +448,6 @@ const run = async () => {
           "GET /elections/schedule",
           "GET /elections/statistics",
           "GET /notifications/:userId",
-          "GET /news/trending",
           "GET /elections/:electionId/categories",
           "GET /elections/:electionId/aspirants",
           "POST /votes/verify-pin",

@@ -51,6 +51,7 @@ const ElectionSchema = new mongoose.Schema({
       categoryId: { type: mongoose.Schema.Types.ObjectId },
       voterId: { type: mongoose.Schema.Types.ObjectId, ref: "Voter" },
       studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
+      adminId: { type: mongoose.Schema.Types.ObjectId, ref: "ECUser" },
       timestamp: { type: Date, default: Date.now },
     },
   ],
@@ -66,6 +67,14 @@ const ElectionSchema = new mongoose.Schema({
         error: String,
       },
     ],
+  },
+  notifications: {
+    startingSoonSentAt: { type: Date, default: null },
+    closingSoonSentAt: { type: Date, default: null },
+    liveSentAt: { type: Date, default: null },
+    closedSentAt: { type: Date, default: null },
+    resultsPublishedSentAt: { type: Date, default: null },
+    turnoutMilestonesSent: { type: [Number], default: [] },
   },
 });
 
