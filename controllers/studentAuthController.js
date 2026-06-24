@@ -45,11 +45,15 @@ const sanitizeEcUser = (ecUser) => ({
   schoolId: ecUser.schoolId,
 });
 
-const findEcPrincipalById = async (userId) => {
-  return Student.findOne({
+const findEcPrincipalById = async (userId, sessionVersion = null) => {
+  const filter = {
     _id: userId,
     accountRole: ecRoleQuery(),
-  });
+  };
+  if (sessionVersion != null) {
+    filter.sessionVersion = sessionVersion;
+  }
+  return Student.findOne(filter);
 };
 
 const sendVerificationOtp = async (student) => {
@@ -434,7 +438,10 @@ export const logoutStudent = async (req, res) => {
     const decoded = verifyToken(accessToken);
 
     if (isEcRole(decoded.role)) {
-      const admin = await findEcPrincipalById(decoded.userId);
+      if (decoded.type !== "access") {
+        return sendError(res, 401, "Invalid token scope");
+      }
+      const admin = await findEcPrincipalById(decoded.userId, decoded.sessionVersion);
       if (!admin) {
         return sendError(res, 401, "EC user not found");
       }
@@ -444,12 +451,19 @@ export const logoutStudent = async (req, res) => {
       }
 
       admin.refreshToken = null;
+      admin.sessionVersion = Number(admin.sessionVersion || 0) + 1;
       await admin.save();
 
       return res.status(200).json({});
     }
 
-    const student = await Student.findById(decoded.studentId);
+    if (decoded.type !== "access") {
+      return sendError(res, 401, "Invalid token scope");
+    }
+    const student = await Student.findOne({
+      _id: decoded.studentId,
+      sessionVersion: decoded.sessionVersion,
+    });
 
     if (!student) {
       return sendError(res, 401, "Student not found");
@@ -460,6 +474,7 @@ export const logoutStudent = async (req, res) => {
     }
 
     student.refreshToken = null;
+    student.sessionVersion = Number(student.sessionVersion || 0) + 1;
     await student.save();
 
     return res.status(200).json({});
@@ -478,8 +493,14 @@ export const checkTokens = async (req, res) => {
 
     try {
       const decodedAccess = verifyToken(accessToken);
+      if (decodedAccess.type !== "access") {
+        throw new Error("Invalid access token scope");
+      }
       if (isEcRole(decodedAccess.role)) {
-        const admin = await findEcPrincipalById(decodedAccess.userId);
+        const admin = await findEcPrincipalById(
+          decodedAccess.userId,
+          decodedAccess.sessionVersion
+        );
         if (admin && admin.refreshToken && (await compareSecret(refreshToken, admin.refreshToken))) {
           return res.status(200).json({
             user: sanitizeEcUser(admin),
@@ -487,7 +508,10 @@ export const checkTokens = async (req, res) => {
           });
         }
       } else {
-        const student = await Student.findById(decodedAccess.studentId);
+        const student = await Student.findOne({
+          _id: decodedAccess.studentId,
+          sessionVersion: decodedAccess.sessionVersion,
+        });
 
         if (student && (await compareSecret(refreshToken, student.refreshToken))) {
           return res.status(200).json({
@@ -511,20 +535,28 @@ export const checkTokens = async (req, res) => {
     }
 
     if (isEcRole(decodedRefresh.role)) {
-      const admin = await findEcPrincipalById(decodedRefresh.userId);
+      const admin = await findEcPrincipalById(
+        decodedRefresh.userId,
+        decodedRefresh.sessionVersion
+      );
       if (!admin || !admin.refreshToken || !(await compareSecret(refreshToken, admin.refreshToken))) {
         return sendError(res, 401, "Invalid refresh token");
       }
 
+      admin.sessionVersion = Number(admin.sessionVersion || 0) + 1;
       const newSession = await issueEcSession(admin);
       return res.status(200).json(newSession);
     }
 
-    const student = await Student.findById(decodedRefresh.studentId);
+    const student = await Student.findOne({
+      _id: decodedRefresh.studentId,
+      sessionVersion: decodedRefresh.sessionVersion,
+    });
     if (!student || !(await compareSecret(refreshToken, student.refreshToken))) {
       return sendError(res, 401, "Invalid refresh token");
     }
 
+    student.sessionVersion = Number(student.sessionVersion || 0) + 1;
     const newAccessToken = signAccessToken(student);
     const newRefreshToken = signRefreshToken(student);
 
@@ -560,20 +592,28 @@ export const refreshSession = async (req, res) => {
     }
 
     if (isEcRole(decodedRefresh.role)) {
-      const admin = await findEcPrincipalById(decodedRefresh.userId);
+      const admin = await findEcPrincipalById(
+        decodedRefresh.userId,
+        decodedRefresh.sessionVersion
+      );
       if (!admin || !admin.refreshToken || !(await compareSecret(refreshToken, admin.refreshToken))) {
         return sendError(res, 401, "Invalid refresh token");
       }
 
+      admin.sessionVersion = Number(admin.sessionVersion || 0) + 1;
       const newSession = await issueEcSession(admin);
       return res.status(200).json(newSession);
     }
 
-    const student = await Student.findById(decodedRefresh.studentId);
+    const student = await Student.findOne({
+      _id: decodedRefresh.studentId,
+      sessionVersion: decodedRefresh.sessionVersion,
+    });
     if (!student || !student.refreshToken || !(await compareSecret(refreshToken, student.refreshToken))) {
       return sendError(res, 401, "Invalid refresh token");
     }
 
+    student.sessionVersion = Number(student.sessionVersion || 0) + 1;
     const accessToken = signAccessToken(student);
     const nextRefreshToken = signRefreshToken(student);
 
@@ -711,6 +751,7 @@ export const resetPassword = async (req, res) => {
 
     student.password = newPassword;
     student.refreshToken = null;
+    student.sessionVersion = Number(student.sessionVersion || 0) + 1;
     student.passwordResetTokenHash = null;
     student.passwordResetTokenExpires = null;
     await student.save();

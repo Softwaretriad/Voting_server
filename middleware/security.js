@@ -42,7 +42,7 @@ export const corsMiddleware = (req, res, next) => {
     res.setHeader("Vary", "Origin");
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type, Accept, Authorization, X-Requested-With"
+      "Content-Type, Accept, Authorization, X-Requested-With, X-CSRF-Token"
     );
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     res.setHeader("Access-Control-Allow-Credentials", "true");

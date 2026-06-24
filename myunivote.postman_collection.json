@@ -10,6 +10,26 @@
       "value": "http://localhost:5000"
     },
     {
+      "key": "schoolAdminEmail",
+      "value": "school.admin@wiuc-ghana.edu.gh"
+    },
+    {
+      "key": "schoolAdminPassword",
+      "value": "SchoolAdmin123$"
+    },
+    {
+      "key": "schoolAdminCsrfToken",
+      "value": ""
+    },
+    {
+      "key": "schoolWebsiteOrigin",
+      "value": "https://houseless-lyndon-cursively.ngrok-free.dev"
+    },
+    {
+      "key": "opsMetricsToken",
+      "value": ""
+    },
+    {
       "key": "schoolId",
       "value": ""
     },
@@ -1385,6 +1405,10 @@
             "method": "GET",
             "header": [
               {
+                "key": "X-Ops-Token",
+                "value": "{{opsMetricsToken}}"
+              },
+              {
                 "key": "Accept",
                 "value": "application/json"
               }
@@ -1702,6 +1726,171 @@
       ]
     },
     {
+      "name": "School Admin Auth",
+      "item": [
+        {
+          "name": "Login School Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{schoolAdminEmail}}\",\n  \"password\": \"{{schoolAdminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/school-admin/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "school-admin",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.csrfToken) pm.collectionVariables.set('schoolAdminCsrfToken', data.csrfToken);",
+                  "if (data.school && data.school._id) pm.collectionVariables.set('schoolId', data.school._id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get School Admin Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/school-admin/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "school-admin",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Refresh School Admin Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{schoolAdminCsrfToken}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{schoolWebsiteOrigin}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/school-admin/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "school-admin",
+                "auth",
+                "refresh"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.csrfToken) pm.collectionVariables.set('schoolAdminCsrfToken', data.csrfToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout School Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{schoolAdminCsrfToken}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{schoolWebsiteOrigin}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/school-admin/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "school-admin",
+                "auth",
+                "logout"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.collectionVariables.unset('schoolAdminCsrfToken');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "School Subscription",
       "item": [
         {
@@ -1731,11 +1920,15 @@
           "name": "Update School Subscription",
           "request": {
             "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{ecToken}}"
-              },
+        "header": [
+          {
+            "key": "X-CSRF-Token",
+            "value": "{{schoolAdminCsrfToken}}"
+          },
+          {
+            "key": "Origin",
+            "value": "{{schoolWebsiteOrigin}}"
+          },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -1771,9 +1964,17 @@
           "name": "Promote Student EC Members",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
+        "header": [
+          {
+            "key": "X-CSRF-Token",
+            "value": "{{schoolAdminCsrfToken}}"
+          },
+          {
+            "key": "Origin",
+            "value": "{{schoolWebsiteOrigin}}"
+          },
+          {
+            "key": "Content-Type",
                 "value": "application/json"
               },
               {

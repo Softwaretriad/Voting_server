@@ -1,23 +1,23 @@
-import jwt from "jsonwebtoken";
 import School from "../models/school.js";
 import SchoolAdmin from "../models/SchoolAdmin.js";
 import { sendError } from "../utils/apiResponse.js";
 import {
   compareSecret,
   hashSecret,
-  isStrongPassword,
-  isValidEmail,
   normalizeEmail,
-  strongPasswordMessage,
 } from "../utils/security.js";
 import {
+  createSchoolAdminCsrfToken,
+  getCsrfCookieOptions,
   getCookieOptions,
   getSchoolAdminRefreshTokenFromRequest,
   SCHOOL_ADMIN_ACCESS_COOKIE,
+  SCHOOL_ADMIN_CSRF_COOKIE,
   SCHOOL_ADMIN_REFRESH_COOKIE,
   SCHOOL_ADMIN_ROLE,
   signSchoolAdminAccessToken,
   signSchoolAdminRefreshToken,
+  verifySchoolAdminToken,
 } from "../utils/schoolAdminAuth.js";
 
 const getAccessCookieMaxAgeMs = () =>
@@ -35,7 +35,7 @@ const sanitizeSchoolAdmin = (admin) => ({
   role: SCHOOL_ADMIN_ROLE,
 });
 
-const setSchoolAdminCookies = (res, { accessToken, refreshToken }) => {
+const setSchoolAdminCookies = (res, { accessToken, refreshToken, csrfToken }) => {
   res.cookie(
     SCHOOL_ADMIN_ACCESS_COOKIE,
     accessToken,
@@ -46,16 +46,23 @@ const setSchoolAdminCookies = (res, { accessToken, refreshToken }) => {
     refreshToken,
     getCookieOptions({ maxAgeMs: getRefreshCookieMaxAgeMs() })
   );
+  res.cookie(
+    SCHOOL_ADMIN_CSRF_COOKIE,
+    csrfToken,
+    getCsrfCookieOptions({ maxAgeMs: getRefreshCookieMaxAgeMs() })
+  );
 };
 
 const clearSchoolAdminCookies = (res) => {
   res.clearCookie(SCHOOL_ADMIN_ACCESS_COOKIE, getCookieOptions());
   res.clearCookie(SCHOOL_ADMIN_REFRESH_COOKIE, getCookieOptions());
+  res.clearCookie(SCHOOL_ADMIN_CSRF_COOKIE, getCsrfCookieOptions());
 };
 
 const issueSchoolAdminSession = async (schoolAdmin) => {
   const accessToken = signSchoolAdminAccessToken(schoolAdmin);
   const refreshToken = signSchoolAdminRefreshToken(schoolAdmin);
+  const csrfToken = createSchoolAdminCsrfToken();
 
   schoolAdmin.refreshToken = await hashSecret(refreshToken);
   schoolAdmin.lastLoginAt = new Date();
@@ -68,6 +75,7 @@ const issueSchoolAdminSession = async (schoolAdmin) => {
   return {
     accessToken,
     refreshToken,
+    csrfToken,
     role: SCHOOL_ADMIN_ROLE,
     user: sanitizeSchoolAdmin(schoolAdmin),
     school: school
@@ -108,73 +116,10 @@ export const loginSchoolAdmin = async (req, res) => {
       role: session.role,
       user: session.user,
       school: session.school,
+      csrfToken: session.csrfToken,
     });
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to login school admin");
-  }
-};
-
-export const bootstrapSchoolAdmin = async (req, res) => {
-  try {
-    const expectedKey = String(process.env.SCHOOL_ADMIN_BOOTSTRAP_KEY || "").trim();
-    const providedKey = String(
-      req.headers["x-school-admin-bootstrap-key"] || req.body?.bootstrapKey || ""
-    ).trim();
-
-    if (!expectedKey || providedKey !== expectedKey) {
-      return sendError(res, 403, "Invalid school admin bootstrap key");
-    }
-
-    const { schoolId, firstName, lastName, email, password } = req.body || {};
-    const normalizedEmail = normalizeEmail(email);
-
-    if (
-      !schoolId ||
-      !firstName ||
-      !lastName ||
-      !isValidEmail(normalizedEmail) ||
-      !password
-    ) {
-      return sendError(
-        res,
-        400,
-        "schoolId, firstName, lastName, a valid email, and password are required"
-      );
-    }
-
-    if (!isStrongPassword(password)) {
-      return sendError(res, 400, strongPasswordMessage);
-    }
-
-    const school = await School.findById(schoolId).select("_id");
-    if (!school) {
-      return sendError(res, 404, "School not found");
-    }
-
-    const existingAdmin = await SchoolAdmin.findOne({
-      $or: [{ email: normalizedEmail }, { schoolId: school._id }],
-    }).select("_id email schoolId");
-    if (existingAdmin?.schoolId?.toString() === school._id.toString()) {
-      return sendError(res, 409, "This school already has a school admin");
-    }
-    if (existingAdmin) {
-      return sendError(res, 409, "School admin email already exists");
-    }
-
-    const schoolAdmin = await SchoolAdmin.create({
-      schoolId: school._id,
-      firstName: String(firstName).trim(),
-      lastName: String(lastName).trim(),
-      email: normalizedEmail,
-      password,
-    });
-
-    return res.status(201).json({
-      message: "School admin created",
-      user: sanitizeSchoolAdmin(schoolAdmin),
-    });
-  } catch (error) {
-    return sendError(res, 500, error.message || "Failed to bootstrap school admin");
   }
 };
 
@@ -185,7 +130,7 @@ export const refreshSchoolAdminSession = async (req, res) => {
       return sendError(res, 401, "Refresh token is required");
     }
 
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    const decoded = verifySchoolAdminToken(refreshToken);
     if (decoded.role !== SCHOOL_ADMIN_ROLE || decoded.type !== "refresh") {
       return sendError(res, 401, "Invalid refresh token scope");
     }
@@ -194,6 +139,7 @@ export const refreshSchoolAdminSession = async (req, res) => {
       _id: decoded.schoolAdminId,
       schoolId: decoded.schoolId,
       isActive: true,
+      sessionVersion: decoded.sessionVersion,
     });
 
     if (
@@ -204,6 +150,7 @@ export const refreshSchoolAdminSession = async (req, res) => {
       return sendError(res, 401, "Invalid refresh token");
     }
 
+    schoolAdmin.sessionVersion = Number(schoolAdmin.sessionVersion || 0) + 1;
     const session = await issueSchoolAdminSession(schoolAdmin);
     setSchoolAdminCookies(res, session);
 
@@ -211,6 +158,7 @@ export const refreshSchoolAdminSession = async (req, res) => {
       role: session.role,
       user: session.user,
       school: session.school,
+      csrfToken: session.csrfToken,
     });
   } catch (error) {
     return sendError(res, 401, error.message || "Invalid or expired refresh token");
@@ -222,11 +170,17 @@ export const logoutSchoolAdmin = async (req, res) => {
     const refreshToken = getSchoolAdminRefreshTokenFromRequest(req);
     if (refreshToken) {
       try {
-        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        const decoded = verifySchoolAdminToken(refreshToken);
         if (decoded.role === SCHOOL_ADMIN_ROLE) {
           await SchoolAdmin.updateOne(
-            { _id: decoded.schoolAdminId },
-            { $set: { refreshToken: null } }
+            {
+              _id: decoded.schoolAdminId,
+              sessionVersion: decoded.sessionVersion,
+            },
+            {
+              $set: { refreshToken: null },
+              $inc: { sessionVersion: 1 },
+            }
           );
         }
       } catch {

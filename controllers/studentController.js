@@ -191,6 +191,7 @@ export const changeStudentEmail = async (req, res) => {
     student.email = normalizedEmail;
     student.isEmailVerified = false;
     student.refreshToken = null;
+    student.sessionVersion = Number(student.sessionVersion || 0) + 1;
     await student.save();
 
     await sendUpdatedEmailVerificationOtp(student);

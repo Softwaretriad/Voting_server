@@ -61,6 +61,8 @@ export const removeECMember = async (req, res) => {
     studentAdmin.accountRole = "student";
     studentAdmin.ecAssignedAt = null;
     studentAdmin.ecAssignedBy = null;
+    studentAdmin.refreshToken = null;
+    studentAdmin.sessionVersion = Number(studentAdmin.sessionVersion || 0) + 1;
     await studentAdmin.save();
 
     await notifySchoolAdmins({

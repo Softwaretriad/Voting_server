@@ -112,6 +112,7 @@ export const promoteSchoolAdmins = async (req, res) => {
       student.ecAssignedAt = new Date();
       student.ecAssignedBy = null;
       student.refreshToken = null;
+      student.sessionVersion = Number(student.sessionVersion || 0) + 1;
       await student.save();
 
       await notifyAdmin({

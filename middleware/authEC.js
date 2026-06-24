@@ -1,7 +1,7 @@
-import jwt from "jsonwebtoken";
 import Student from "../models/Student.js";
 import dotenv from "dotenv";
 import { ecRoleQuery, isEcRole } from "../utils/ecRole.js";
+import { verifyToken } from "../utils/studentAuth.js";
 dotenv.config();
 
 export const protect = async (req, res, next) => {
@@ -14,14 +14,15 @@ export const protect = async (req, res, next) => {
   const token = authHeader.split(" ")[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.role && !isEcRole(decoded.role)) {
+    const decoded = verifyToken(token);
+    if (!isEcRole(decoded.role) || decoded.type !== "access") {
       return res.status(401).json({ error: "Invalid token scope" });
     }
 
     const ecUser = await Student.findOne({
       _id: decoded.userId,
       accountRole: ecRoleQuery(),
+      sessionVersion: decoded.sessionVersion,
     }).select("-password -votingPin");
     if (!ecUser) {
       return res.status(401).json({ error: "EC user not found" });

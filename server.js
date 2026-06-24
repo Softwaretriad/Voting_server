@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "crypto";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import path from "path";
@@ -23,6 +24,9 @@ import {
   securityHeaders,
 } from "./middleware/security.js";
 import { enforceInputLimits } from "./middleware/inputLimits.js";
+import { rejectMongoOperatorKeys } from "./middleware/noSqlProtection.js";
+import { noStore } from "./middleware/noStore.js";
+import { createRateLimiter } from "./middleware/rateLimit.js";
 import { requestMetrics } from "./middleware/requestMetrics.js";
 import { verifyEmailTransport } from "./utils/sendEmail.js";
 import {
@@ -62,6 +66,7 @@ app.use((error, _req, res, next) => {
   return next(error);
 });
 app.use(enforceInputLimits);
+app.use(rejectMongoOperatorKeys);
 app.use(
   "/assets/logos",
   express.static(path.join(process.cwd(), "public", "assets", "logos"), {
@@ -88,33 +93,55 @@ app.use("/notifications", notificationRoutes);
 app.use("/uploads", uploadRoutes);
 app.use("/devices", deviceRoutes);
 app.use("/ec", ecOperationsRoutes);
-app.use("/debug", debugRoutes);
-app.get("/debug/socket-health", async (_req, res) => {
-  res.status(200).json({
-    ...getSocketHealth(),
-    mongoReadyState: mongoose.connection.readyState,
-    redis: await getRedisHealth(),
-  });
+if (process.env.NODE_ENV !== "production") {
+  app.use("/debug", debugRoutes);
+}
+const debugRateLimit = createRateLimiter({
+  key: "debug-endpoints",
+  windowMs: 60 * 1000,
+  max: 30,
 });
 const requireOpsMetricsToken = (req, res, next) => {
   const expectedToken = String(process.env.OPS_METRICS_TOKEN || "").trim();
   if (!expectedToken) {
-    next();
-    return;
+    return res.status(404).json({ error: "Route not found" });
   }
 
   const authHeader = String(req.headers.authorization || "");
   const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   const providedToken = String(req.headers["x-ops-token"] || bearerToken || "").trim();
 
-  if (providedToken !== expectedToken) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
+  const expectedBuffer = Buffer.from(expectedToken);
+  const providedBuffer = Buffer.from(providedToken);
+  const tokenMatches =
+    expectedBuffer.length === providedBuffer.length &&
+    crypto.timingSafeEqual(expectedBuffer, providedBuffer);
+
+  if (!tokenMatches) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
-  next();
+  return next();
 };
-app.get("/debug/ops-metrics", requireOpsMetricsToken, async (_req, res) => {
+app.get(
+  "/debug/socket-health",
+  noStore,
+  debugRateLimit,
+  requireOpsMetricsToken,
+  async (_req, res) => {
+    res.status(200).json({
+      ...getSocketHealth(),
+      mongoReadyState: mongoose.connection.readyState,
+      redis: await getRedisHealth(),
+    });
+  }
+);
+app.get(
+  "/debug/ops-metrics",
+  noStore,
+  debugRateLimit,
+  requireOpsMetricsToken,
+  async (_req, res) => {
   try {
     res.status(200).json(await getOpsMetrics());
   } catch (error) {
@@ -123,7 +150,8 @@ app.get("/debug/ops-metrics", requireOpsMetricsToken, async (_req, res) => {
       message: error.message,
     });
   }
-});
+  }
+);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });

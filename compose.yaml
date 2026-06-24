@@ -7,7 +7,7 @@ services:
       - .env
     environment:
       NODE_ENV: production
-      REDIS_URL: rediss://myunivote-ffm5yl.serverless.use1.cache.amazonaws.com:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     ports:
       - "5000:5000"
     networks:

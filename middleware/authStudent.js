@@ -4,7 +4,7 @@ import { sendError } from "../utils/apiResponse.js";
 import { ecRoleQuery, isEcRole } from "../utils/ecRole.js";
 
 const STUDENT_AUTH_FIELDS =
-  "_id studentId firstName lastName gender email phone schoolId accountRole universityFullName department currentYearOfStudy programOfStudy isEmailVerified";
+  "_id studentId firstName lastName gender email phone schoolId accountRole universityFullName department currentYearOfStudy programOfStudy isEmailVerified sessionVersion";
 const STUDENT_VOTE_AUTH_FIELDS = `${STUDENT_AUTH_FIELDS} votingPin votingPinAttempts votingPinLockedUntil`;
 
 const protectStudentWithFields = (fields) => async (req, res, next) => {
@@ -17,12 +17,16 @@ const protectStudentWithFields = (fields) => async (req, res, next) => {
   try {
     const token = authHeader.split(" ")[1];
     const decoded = verifyToken(token);
+    if (decoded.type !== "access") {
+      return sendError(res, 401, "Invalid token scope");
+    }
     let student = null;
 
     if (isEcRole(decoded.role)) {
       student = await Student.findOne({
         _id: decoded.userId,
         accountRole: ecRoleQuery(),
+        sessionVersion: decoded.sessionVersion,
       })
         .select(fields)
         .lean();
@@ -30,7 +34,12 @@ const protectStudentWithFields = (fields) => async (req, res, next) => {
       if (decoded.role && decoded.role !== "student") {
         return sendError(res, 401, "Invalid token scope");
       }
-      student = await Student.findById(decoded.studentId).select(fields).lean();
+      student = await Student.findOne({
+        _id: decoded.studentId,
+        sessionVersion: decoded.sessionVersion,
+      })
+        .select(fields)
+        .lean();
     }
 
     if (!student) {

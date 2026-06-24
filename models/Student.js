@@ -55,6 +55,7 @@ const StudentSchema = new mongoose.Schema(
     votingPinResetTokenHash: { type: String, default: null },
     votingPinResetTokenExpires: { type: Date, default: null },
     refreshToken: { type: String, default: null },
+    sessionVersion: { type: Number, default: 0, min: 0 },
     passwordResetTokenHash: { type: String, default: null },
     passwordResetTokenExpires: { type: Date, default: null },
     votingPinAttempts: { type: Number, default: 0 },

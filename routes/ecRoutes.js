@@ -1,9 +1,11 @@
 import express from "express";
 import { addECMember, listECMembers, removeECMember } from "../controllers/ecController.js";
 import { protect } from "../middleware/authEC.js";
+import { noStore } from "../middleware/noStore.js";
 
 
 const router = express.Router();
+router.use(noStore);
 
 router.post("/add-member", protect, addECMember);
 router.get("/list/:schoolId", protect, listECMembers);

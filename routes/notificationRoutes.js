@@ -5,8 +5,10 @@ import {
   markStudentNotificationAsRead,
 } from "../controllers/notificationController.js";
 import { protectStudent } from "../middleware/authStudent.js";
+import { noStore } from "../middleware/noStore.js";
 
 const router = express.Router();
+router.use(noStore);
 
 router.get("/:userId", protectStudent, getStudentNotifications);
 router.patch("/:userId/read-all", protectStudent, markAllStudentNotificationsAsRead);

@@ -27,6 +27,7 @@ const SchoolAdminSchema = new mongoose.Schema(
     role: { type: String, enum: ["school_admin"], default: "school_admin" },
     isActive: { type: Boolean, default: true, index: true },
     refreshToken: { type: String, default: null },
+    sessionVersion: { type: Number, default: 0, min: 0 },
     lastLoginAt: { type: Date, default: null },
   },
   { timestamps: true }

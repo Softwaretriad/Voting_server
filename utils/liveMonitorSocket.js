@@ -1,8 +1,9 @@
 import { Server as SocketIOServer } from "socket.io";
-import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
-import { EC_ROLE, isEcRole } from "./ecRole.js";
+import Student from "../models/Student.js";
+import { EC_ROLE, ecRoleQuery, isEcRole } from "./ecRole.js";
 import { createRedisClient, isRedisUrlConfigured } from "./redisClient.js";
+import { verifyToken } from "./studentAuth.js";
 
 let io = null;
 let monitorPayloadBuilder = null;
@@ -100,7 +101,7 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
     console.warn("Socket.IO Redis adapter setup failed:", error.message);
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     try {
       const token = getTokenFromSocket(socket);
       if (!token) {
@@ -109,7 +110,36 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
         return;
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = verifyToken(token);
+      if (decoded.type !== "access") {
+        next(new Error("Invalid token scope"));
+        return;
+      }
+      if (!isEcRole(decoded.role) && decoded.role !== "student") {
+        next(new Error("Invalid token scope"));
+        return;
+      }
+
+      const principal = isEcRole(decoded.role)
+        ? await Student.findOne({
+            _id: decoded.userId,
+            accountRole: ecRoleQuery(),
+            sessionVersion: decoded.sessionVersion,
+          })
+            .select("_id")
+            .lean()
+        : await Student.findOne({
+            _id: decoded.studentId,
+            accountRole: "student",
+            sessionVersion: decoded.sessionVersion,
+          })
+            .select("_id")
+            .lean();
+      if (!principal) {
+        next(new Error("Session is no longer valid"));
+        return;
+      }
+
       socket.data.user = decoded;
       socketDebug("auth-success", {
         socketId: socket.id,

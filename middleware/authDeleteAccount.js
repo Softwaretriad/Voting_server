@@ -13,11 +13,15 @@ export const protectDeleteAccount = async (req, res, next) => {
   try {
     const token = authHeader.split(" ")[1];
     const decoded = verifyToken(token);
+    if (decoded.type !== "access") {
+      return sendError(res, 401, "Invalid token scope");
+    }
 
     if (isEcRole(decoded.role)) {
       const promotedAdmin = await Student.findOne({
         _id: decoded.userId,
         accountRole: ecRoleQuery(),
+        sessionVersion: decoded.sessionVersion,
       });
 
       if (promotedAdmin) {
@@ -28,7 +32,14 @@ export const protectDeleteAccount = async (req, res, next) => {
       return sendError(res, 401, "EC user not found");
     }
 
-    const student = await Student.findById(decoded.studentId);
+    if (decoded.role !== "student") {
+      return sendError(res, 401, "Invalid token scope");
+    }
+
+    const student = await Student.findOne({
+      _id: decoded.studentId,
+      sessionVersion: decoded.sessionVersion,
+    });
     if (!student) {
       return sendError(res, 401, "Student not found");
     }

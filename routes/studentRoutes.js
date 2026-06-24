@@ -13,8 +13,10 @@ import {
 import { protectDeleteAccount } from "../middleware/authDeleteAccount.js";
 import { protectStudent } from "../middleware/authStudent.js";
 import { validate, validators } from "../middleware/validate.js";
+import { noStore } from "../middleware/noStore.js";
 
 const router = express.Router();
+router.use(noStore);
 
 router.get("/:userId", protectStudent, getStudentProfile);
 router.patch(

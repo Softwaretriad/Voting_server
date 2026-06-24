@@ -1,9 +1,9 @@
-import jwt from "jsonwebtoken";
 import SchoolAdmin from "../models/SchoolAdmin.js";
 import { sendError } from "../utils/apiResponse.js";
 import {
   getSchoolAdminAccessTokenFromRequest,
   SCHOOL_ADMIN_ROLE,
+  verifySchoolAdminToken,
 } from "../utils/schoolAdminAuth.js";
 
 export const protectSchoolAdmin = async (req, res, next) => {
@@ -14,7 +14,7 @@ export const protectSchoolAdmin = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = verifySchoolAdminToken(token);
     if (decoded.role !== SCHOOL_ADMIN_ROLE || decoded.type !== "access") {
       return sendError(res, 401, "Invalid token scope");
     }
@@ -23,6 +23,7 @@ export const protectSchoolAdmin = async (req, res, next) => {
       _id: decoded.schoolAdminId,
       schoolId: decoded.schoolId,
       isActive: true,
+      sessionVersion: decoded.sessionVersion,
     }).select("-password -refreshToken");
 
     if (!schoolAdmin) {

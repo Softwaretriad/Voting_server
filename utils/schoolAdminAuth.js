@@ -1,9 +1,20 @@
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 export const SCHOOL_ADMIN_ROLE = "school_admin";
 
 export const SCHOOL_ADMIN_ACCESS_COOKIE = "schoolAdminAccessToken";
 export const SCHOOL_ADMIN_REFRESH_COOKIE = "schoolAdminRefreshToken";
+export const SCHOOL_ADMIN_CSRF_COOKIE = "schoolAdminCsrfToken";
+
+const JWT_ALGORITHM = "HS256";
+const getJwtOptions = (expiresIn) => ({
+  algorithm: JWT_ALGORITHM,
+  issuer: process.env.JWT_ISSUER || "myunivote-api",
+  audience: process.env.JWT_AUDIENCE || "myunivote-clients",
+  expiresIn,
+  jwtid: crypto.randomUUID(),
+});
 
 export const signSchoolAdminAccessToken = (schoolAdmin) =>
   jwt.sign(
@@ -12,9 +23,10 @@ export const signSchoolAdminAccessToken = (schoolAdmin) =>
       schoolId: schoolAdmin.schoolId,
       role: SCHOOL_ADMIN_ROLE,
       type: "access",
+      sessionVersion: Number(schoolAdmin.sessionVersion || 0),
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_SCHOOL_ADMIN_EXPIRATION || "2h" }
+    getJwtOptions(process.env.JWT_SCHOOL_ADMIN_EXPIRATION || "2h")
   );
 
 export const signSchoolAdminRefreshToken = (schoolAdmin) =>
@@ -24,10 +36,21 @@ export const signSchoolAdminRefreshToken = (schoolAdmin) =>
       schoolId: schoolAdmin.schoolId,
       role: SCHOOL_ADMIN_ROLE,
       type: "refresh",
+      sessionVersion: Number(schoolAdmin.sessionVersion || 0),
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_SCHOOL_ADMIN_REFRESH_EXPIRATION || "7d" }
+    getJwtOptions(process.env.JWT_SCHOOL_ADMIN_REFRESH_EXPIRATION || "7d")
   );
+
+export const verifySchoolAdminToken = (token) =>
+  jwt.verify(token, process.env.JWT_SECRET, {
+    algorithms: [JWT_ALGORITHM],
+    issuer: process.env.JWT_ISSUER || "myunivote-api",
+    audience: process.env.JWT_AUDIENCE || "myunivote-clients",
+  });
+
+export const createSchoolAdminCsrfToken = () =>
+  crypto.randomBytes(32).toString("base64url");
 
 export const parseCookies = (cookieHeader = "") =>
   String(cookieHeader || "")
@@ -40,7 +63,11 @@ export const parseCookies = (cookieHeader = "") =>
       const key = part.slice(0, separatorIndex).trim();
       const value = part.slice(separatorIndex + 1).trim();
       if (key) {
-        acc[key] = decodeURIComponent(value);
+        try {
+          acc[key] = decodeURIComponent(value);
+        } catch {
+          acc[key] = value;
+        }
       }
       return acc;
     }, {});
@@ -54,6 +81,11 @@ export const getCookieOptions = ({ maxAgeMs } = {}) => ({
     ? { domain: process.env.SCHOOL_ADMIN_COOKIE_DOMAIN }
     : {}),
   ...(maxAgeMs ? { maxAge: maxAgeMs } : {}),
+});
+
+export const getCsrfCookieOptions = ({ maxAgeMs } = {}) => ({
+  ...getCookieOptions({ maxAgeMs }),
+  httpOnly: false,
 });
 
 export const getSchoolAdminAccessTokenFromRequest = (req) => {

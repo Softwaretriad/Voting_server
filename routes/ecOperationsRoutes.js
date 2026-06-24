@@ -36,8 +36,11 @@ import {
 import { createRateLimiter } from "../middleware/rateLimit.js";
 import { uploadImage } from "../middleware/uploadImage.js";
 import { validate, validators } from "../middleware/validate.js";
+import { noStore } from "../middleware/noStore.js";
+import { rejectMongoOperatorKeys } from "../middleware/noSqlProtection.js";
 
 const router = express.Router();
+router.use(noStore);
 
 router.post("/votes/cast", protect, validate(validators.castEcVote), castEcVote);
 router.get("/votes/history/:ecUserId", protect, getEcVoteHistory);
@@ -70,6 +73,7 @@ router.post(
   imageUploadRateLimit,
   uploadImage,
   handleImageUploadError,
+  rejectMongoOperatorKeys,
   uploadEcImage
 );
 router.post(
@@ -78,6 +82,7 @@ router.post(
   imageUploadRateLimit,
   uploadImage,
   handleImageUploadError,
+  rejectMongoOperatorKeys,
   uploadElectionImage
 );
 router.get("/elections", protect, validate(validators.ecElectionList), getEcElectionsByStatus);
@@ -91,9 +96,29 @@ router.post(
   validate(validators.ecElectionCreate),
   createEcElection
 );
-router.put("/elections/:electionId", protect, updateEcElection);
-router.patch("/elections/:electionId/schedule", protect, scheduleEcElection);
-router.delete("/elections/:electionId", protect, deleteEcElection);
+const electionMutationRateLimit = createRateLimiter({
+  key: "ec-election-mutation",
+  windowMs: 10 * 60 * 1000,
+  max: 40,
+});
+router.put(
+  "/elections/:electionId",
+  protect,
+  electionMutationRateLimit,
+  updateEcElection
+);
+router.patch(
+  "/elections/:electionId/schedule",
+  protect,
+  electionMutationRateLimit,
+  scheduleEcElection
+);
+router.delete(
+  "/elections/:electionId",
+  protect,
+  electionMutationRateLimit,
+  deleteEcElection
+);
 router.get("/reports/elections/:electionId", protect, getEcElectionReport);
 router.get("/reports/:schoolId", protect, getEcReports);
 router.get("/activity/:schoolId", protect, getEcActivity);
