@@ -1,6 +1,12 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
-import { hashSecret, isHashedValue } from "../utils/security.js";
+import {
+  hashPin,
+  isHashedValue,
+  isPinHashValue,
+  isValidEmail,
+} from "../utils/security.js";
+import { EC_ROLE, STUDENT_ROLE } from "../utils/ecRole.js";
 
 const StudentSchema = new mongoose.Schema(
   {
@@ -18,18 +24,22 @@ const StudentSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
+      validate: {
+        validator: isValidEmail,
+        message: "email must be a valid email address",
+      },
     },
     password: { type: String, required: true },
     phone: { type: String, required: true, trim: true },
     schoolId: { type: mongoose.Schema.Types.ObjectId, ref: "School", default: null },
     accountRole: {
       type: String,
-      enum: ["student", "admin"],
-      default: "student",
+      enum: [STUDENT_ROLE, EC_ROLE],
+      default: STUDENT_ROLE,
       index: true,
     },
-    adminAssignedAt: { type: Date, default: null },
-    adminAssignedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Student", default: null },
+    ecAssignedAt: { type: Date, default: null },
+    ecAssignedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Student", default: null },
     universityFullName: { type: String, required: true, trim: true },
     department: { type: String, required: true, trim: true },
     currentYearOfStudy: { type: Number, default: null, min: 1 },
@@ -68,13 +78,16 @@ StudentSchema.pre("save", async function preSave(next) {
 
 StudentSchema.pre("save", async function preSaveVotingPin(next) {
   if (!this.isModified("votingPin")) return next();
-  if (isHashedValue(this.votingPin)) return next();
-  this.votingPin = await hashSecret(this.votingPin);
+  if (isHashedValue(this.votingPin) || isPinHashValue(this.votingPin)) return next();
+  this.votingPin = await hashPin(this.votingPin);
   next();
 });
 
 StudentSchema.methods.matchPassword = function matchPassword(plainText) {
   return bcrypt.compare(plainText, this.password);
 };
+
+StudentSchema.index({ schoolId: 1, accountRole: 1 });
+StudentSchema.index({ schoolId: 1, studentId: 1 });
 
 export default mongoose.model("Student", StudentSchema);

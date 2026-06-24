@@ -6,41 +6,91 @@ import {
   filterEligibleElectionsForStudent,
   isStudentEligibleForElection,
 } from "../utils/electionEligibility.js";
+import { processElectionLifecycle } from "../utils/electionResultsProcessor.js";
 import { registerStudentElectionPayloadBuilder } from "../utils/liveMonitorSocket.js";
-import { hasStudentVotedInCategory } from "../utils/voteState.js";
+import { getCacheJson, setCacheJson } from "../utils/redisClient.js";
+import { getStoredVotesForElection } from "../utils/voteStore.js";
 
 const getStudentSchoolId = (student) => student.schoolId?.toString() || null;
+const STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS = Number(
+  process.env.STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS || 3
+);
+const usesEmbeddedEligibilityFallback = () => process.env.ELIGIBILITY_SOURCE === "embedded_first";
+const electionListProjection = () =>
+  [
+    "title",
+    "description",
+    "status",
+    "startTime",
+    "endTime",
+    "schoolId",
+    "subTitle",
+    "imageUrl",
+    "totalVotes",
+    "categories",
+    "createdAt",
+    usesEmbeddedEligibilityFallback() ? "eligibleVoters" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+const shouldRunLifecycleOnStudentRead = () => process.env.ELECTION_LIFECYCLE_ON_READ === "true";
 
-const toElectionCard = (election) => ({
-  _id: election._id.toString(),
-  title: election.title,
-  description: election.description || "",
-  status: election.status === "ended" ? "closed" : election.status,
-  startDate: election.startTime ? election.startTime.toISOString() : null,
-  endDate: election.endTime ? election.endTime.toISOString() : null,
-  schoolId: election.schoolId?.toString?.() || election.schoolId,
-  subTitle: election.subTitle || "",
-  imageUrl: election.imageUrl || "",
-  voteCount: election.votes?.length || 0,
-});
+const maybeProcessScheduledElectionsOnRead = async () => {
+  if (shouldRunLifecycleOnStudentRead()) {
+    await processElectionLifecycle();
+  }
+};
 
-const mapStudentCategory = ({ election, category, studentId }) => ({
+const getStudentElectionListCacheKey = ({ student, scope }) => {
+  const studentId = student?._id?.toString?.() || "anonymous";
+  const schoolId = getStudentSchoolId(student) || "none";
+  return `student-election-list:${scope}:${schoolId}:${studentId}`;
+};
+
+const toElectionCard = (election, voteCount = null) => {
+  const status = election.status === "ended" ? "closed" : election.status;
+
+  return {
+    _id: election._id.toString(),
+    title: election.title,
+    description: election.description || "",
+    status,
+    startDate: election.startTime ? election.startTime.toISOString() : null,
+    endDate: election.endTime ? election.endTime.toISOString() : null,
+    schoolId: election.schoolId?.toString?.() || election.schoolId,
+    subTitle: election.subTitle || "",
+    imageUrl: election.imageUrl || "",
+    voteCount: voteCount ?? election.totalVotes ?? 0,
+    listScope: status === "scheduled" ? "schedule" : status === "active" ? "active" : "results",
+    isScheduled: status === "scheduled",
+    isActive: status === "active",
+  };
+};
+
+const hasStudentVoteInVotes = ({ votes = [], studentId, categoryId }) =>
+  votes.some(
+    (vote) =>
+      (vote.studentId || vote.voterId)?.toString() === String(studentId) &&
+      vote.categoryId?.toString() === String(categoryId)
+  );
+
+const mapStudentCategory = ({ election, category, studentId, votes = [] }) => ({
   _id: category._id.toString(),
   electionId: election._id.toString(),
   title: category.title,
   subTitle: category.subTitle || election.subTitle || "",
   imageUrl: category.imageUrl || "",
-  totalVotes: (election.votes || []).filter(
+  totalVotes: votes.filter(
     (vote) => vote.categoryId?.toString() === category._id.toString()
   ).length,
-  hasVotedInCategory: hasStudentVotedInCategory({
-    election,
+  hasVotedInCategory: hasStudentVoteInVotes({
+    votes,
     studentId,
     categoryId: category._id,
   }),
 });
 
-const mapStudentAspirant = ({ aspirant, election, studentId, electionId }) => ({
+const mapStudentAspirant = ({ aspirant, election, studentId, electionId, votes = [] }) => ({
   _id: aspirant._id.toString(),
   electionId: aspirant.electionId?.toString() || electionId,
   categoryId: aspirant.categoryId?.toString() || aspirant.electoralCategory,
@@ -53,20 +103,21 @@ const mapStudentAspirant = ({ aspirant, election, studentId, electionId }) => ({
   department: aspirant.faculty || "",
   imageUrl: aspirant.imageUrl || "",
   voteCount: aspirant.voteCount || 0,
-  hasVotedInCategory: hasStudentVotedInCategory({
-    election,
+  hasVotedInCategory: hasStudentVoteInVotes({
+    votes,
     studentId,
     categoryId: aspirant.categoryId?.toString() || aspirant.electoralCategory,
   }),
 });
 
-const buildStudentCategoryPayloads = ({ election, aspirants, studentId }) => {
+const buildStudentCategoryPayloads = ({ election, aspirants, studentId, votes = [] }) => {
   if (election.categories.length > 0) {
     return election.categories.map((category) => ({
       ...mapStudentCategory({
         election,
         category,
         studentId,
+        votes,
       }),
       aspirants: aspirants
         .filter((aspirant) => aspirant.categoryId?.toString() === category._id.toString())
@@ -76,6 +127,7 @@ const buildStudentCategoryPayloads = ({ election, aspirants, studentId }) => {
             election,
             studentId,
             electionId: election._id.toString(),
+            votes,
           })
         ),
     }));
@@ -95,6 +147,7 @@ const buildStudentCategoryPayloads = ({ election, aspirants, studentId }) => {
               imageUrl: aspirant.imageUrl || "",
             },
             studentId,
+            votes,
           }),
           aspirants: aspirants
             .filter(
@@ -108,6 +161,7 @@ const buildStudentCategoryPayloads = ({ election, aspirants, studentId }) => {
                 election,
                 studentId,
                 electionId: election._id.toString(),
+                votes,
               })
             ),
         },
@@ -118,9 +172,10 @@ const buildStudentCategoryPayloads = ({ election, aspirants, studentId }) => {
 
 export const getElectionById = async (req, res) => {
   try {
+    await maybeProcessScheduledElectionsOnRead();
     const { electionId } = req.params;
     const schoolId = getStudentSchoolId(req.student);
-    const election = await Election.findById(electionId);
+    const election = await Election.findById(electionId).lean();
 
     if (!election) {
       return sendError(res, 404, "Election not found");
@@ -138,11 +193,13 @@ export const getElectionById = async (req, res) => {
       return sendError(res, 403, "You are not eligible for this election");
     }
 
+    const voteCount = election.totalVotes || 0;
+
     return res.status(200).json({
-      ...toElectionCard(election),
+      ...toElectionCard(election, voteCount),
       categories: (election.categories || []).map((category) => category.title),
       eligibleVoters: election.eligibleVoters?.length || 0,
-      votesCast: election.votes?.length || 0,
+      votesCast: voteCount,
     });
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load election");
@@ -151,17 +208,33 @@ export const getElectionById = async (req, res) => {
 
 export const getActiveElections = async (req, res) => {
   try {
+    await maybeProcessScheduledElectionsOnRead();
+    const cacheKey = getStudentElectionListCacheKey({
+      student: req.student,
+      scope: "active",
+    });
+    const cachedCards = await getCacheJson(cacheKey);
+    if (cachedCards) {
+      return res.status(200).json(cachedCards);
+    }
+
     const schoolId = getStudentSchoolId(req.student);
     const elections = await Election.find({
       status: "active",
       ...(schoolId ? { schoolId } : {}),
-    }).sort({ startTime: -1 });
+    })
+      .select(electionListProjection())
+      .sort({ startTime: 1, createdAt: -1 })
+      .lean();
     const eligibleElections = await filterEligibleElectionsForStudent({
       elections,
       student: req.student,
     });
 
-    return res.status(200).json(eligibleElections.map(toElectionCard));
+    const cards = eligibleElections.map((election) => toElectionCard(election));
+    await setCacheJson(cacheKey, cards, STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS);
+
+    return res.status(200).json(cards);
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load active elections");
   }
@@ -169,11 +242,36 @@ export const getActiveElections = async (req, res) => {
 
 export const getElectionSchedule = async (req, res) => {
   try {
+    await maybeProcessScheduledElectionsOnRead();
+    const cacheKey = getStudentElectionListCacheKey({
+      student: req.student,
+      scope: "schedule",
+    });
+    const cachedSchedule = await getCacheJson(cacheKey);
+    if (cachedSchedule) {
+      return res.status(200).json(cachedSchedule);
+    }
+
     const schoolId = getStudentSchoolId(req.student);
     const elections = await Election.find({
-      status: { $in: ["pending", "scheduled"] },
+      status: "scheduled",
       ...(schoolId ? { schoolId } : {}),
-    }).sort({ startTime: 1 });
+    })
+      .select(
+        [
+          "title",
+          "startTime",
+          "endTime",
+          "schoolId",
+          "imageUrl",
+          "categories",
+          usesEmbeddedEligibilityFallback() ? "eligibleVoters" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      )
+      .sort({ startTime: 1 })
+      .lean();
     const eligibleElections = await filterEligibleElectionsForStudent({
       elections,
       student: req.student,
@@ -182,6 +280,11 @@ export const getElectionSchedule = async (req, res) => {
     const schedule = eligibleElections.map((election) => ({
       _id: election._id.toString(),
       electionTitle: election.title,
+      status: "scheduled",
+      listScope: "schedule",
+      isScheduled: true,
+      isActive: false,
+      imageUrl: election.imageUrl || "",
       scheduledDate: election.startTime
         ? election.startTime.toISOString()
         : election.endTime.toISOString(),
@@ -192,6 +295,7 @@ export const getElectionSchedule = async (req, res) => {
         timeZone: "UTC",
       }).format(election.startTime || election.endTime),
     }));
+    await setCacheJson(cacheKey, schedule, STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS);
 
     return res.status(200).json(schedule);
   } catch (error) {
@@ -225,8 +329,12 @@ export const getElectionStatistics = async (req, res) => {
     let femaleVotes = 0;
     let totalVotes = 0;
 
-    elections.forEach((election) => {
-      election.votes.forEach((vote) => {
+    const electionVotes = await Promise.all(
+      elections.map(async (election) => getStoredVotesForElection(election))
+    );
+
+    electionVotes.forEach((votes) => {
+      votes.forEach((vote) => {
         const student = studentById.get(vote.studentId?.toString());
         if (!student) return;
 
@@ -256,17 +364,32 @@ export const getElectionStatistics = async (req, res) => {
 
 export const getElectionResults = async (req, res) => {
   try {
+    const cacheKey = getStudentElectionListCacheKey({
+      student: req.student,
+      scope: "results",
+    });
+    const cachedCards = await getCacheJson(cacheKey);
+    if (cachedCards) {
+      return res.status(200).json(cachedCards);
+    }
+
     const schoolId = getStudentSchoolId(req.student);
     const elections = await Election.find({
       status: { $in: ["active", "ended", "closed"] },
       ...(schoolId ? { schoolId } : {}),
-    }).sort({ startTime: -1 });
+    })
+      .select(electionListProjection())
+      .sort({ startTime: -1 })
+      .lean();
     const eligibleElections = await filterEligibleElectionsForStudent({
       elections,
       student: req.student,
     });
 
-    return res.status(200).json(eligibleElections.map(toElectionCard));
+    const cards = eligibleElections.map((election) => toElectionCard(election));
+    await setCacheJson(cacheKey, cards, STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS);
+
+    return res.status(200).json(cards);
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load election results");
   }
@@ -293,11 +416,13 @@ export const getElectionCategories = async (req, res) => {
       return sendError(res, 403, "You are not eligible for this election");
     }
 
+    const votes = await getStoredVotesForElection(election);
     let categories = election.categories.map((category) => ({
       ...mapStudentCategory({
         election,
         category,
         studentId: req.student?._id,
+        votes,
       }),
     }));
 
@@ -317,6 +442,7 @@ export const getElectionCategories = async (req, res) => {
                   imageUrl: aspirant.imageUrl || "",
                 },
                 studentId: req.student?._id,
+                votes,
               }),
             },
           ])
@@ -355,6 +481,7 @@ export const getAspirantsForElection = async (req, res) => {
       electionId,
       ...(schoolId ? { schoolId } : {}),
     }).sort({ name: 1 });
+    const votes = await getStoredVotesForElection(election);
 
     return res.status(200).json(
       aspirants.map((aspirant) =>
@@ -363,6 +490,7 @@ export const getAspirantsForElection = async (req, res) => {
           election,
           studentId: req.student?._id,
           electionId,
+          votes,
         })
       )
     );
@@ -407,11 +535,14 @@ export const buildStudentElectionRealtimePayload = async ({ electionId, studentI
     electionId,
     ...(schoolId ? { schoolId } : {}),
   }).sort({ electoralCategory: 1, name: 1 });
+  const votes = await getStoredVotesForElection(election);
+  const voteCount = votes.length || election.totalVotes || 0;
 
   const categories = buildStudentCategoryPayloads({
     election,
     aspirants,
     studentId: student._id,
+    votes,
   });
   const mappedAspirants = aspirants.map((aspirant) =>
     mapStudentAspirant({
@@ -419,14 +550,15 @@ export const buildStudentElectionRealtimePayload = async ({ electionId, studentI
       election,
       studentId: student._id,
       electionId,
+      votes,
     })
   );
 
   return {
-    ...toElectionCard(election),
+    ...toElectionCard(election, voteCount),
     updatedAt: new Date().toISOString(),
     lastUpdatedAt: new Date().toISOString(),
-    votesCast: election.votes?.length || 0,
+    votesCast: voteCount,
     categories,
     categoryResults: categories,
     aspirants: mappedAspirants,

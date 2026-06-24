@@ -42,7 +42,7 @@ const seed = async () => {
       logoUrl: "https://placehold.co/200x200/png",
       email: DEMO_SCHOOL_EMAIL,
       plan: "free",
-      subscriptionTerm: "1_month",
+      subscriptionTerm: "4_months",
       subscriptionStartedAt: new Date(),
       faculties: [
         {
@@ -79,8 +79,8 @@ const seed = async () => {
       votingPin: REVIEW_VOTING_PIN,
       isEmailVerified: true,
       accountRole: "student",
-      adminAssignedAt: null,
-      adminAssignedBy: null,
+      ecAssignedAt: null,
+      ecAssignedBy: null,
     },
   });
 
@@ -101,9 +101,9 @@ const seed = async () => {
       programOfStudy: "BSc Information Technology",
       votingPin: REVIEW_VOTING_PIN,
       isEmailVerified: true,
-      accountRole: "admin",
-      adminAssignedAt: new Date(),
-      adminAssignedBy: null,
+      accountRole: "ec",
+      ecAssignedAt: new Date(),
+      ecAssignedBy: null,
     },
   });
 
@@ -347,7 +347,7 @@ const seed = async () => {
   ]);
 
   await Notification.deleteMany({
-    $or: [{ studentId: { $in: [reviewStudent._id, reviewAdmin._id] } }, { adminId: reviewAdmin._id }],
+    $or: [{ studentId: { $in: [reviewStudent._id, reviewAdmin._id] } }, { ecUserId: reviewAdmin._id }],
   });
 
   await Notification.insertMany([
@@ -362,8 +362,8 @@ const seed = async () => {
       data: { electionId: activeElection._id.toString(), electionTitle: activeElection.title },
     },
     {
-      recipientType: "admin",
-      adminId: reviewAdmin._id,
+      recipientType: "ec",
+      ecUserId: reviewAdmin._id,
       schoolId: school._id,
       type: "election_created",
       title: "Election created",

@@ -7,25 +7,47 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "migrate:legacy": "node scripts/migrateLegacyCollections.js",
+    "migrate:ec-legacy-cleanup": "node scripts/migrateEcLegacyCleanup.js",
+    "migrate:activity-actors": "node scripts/backfillActivityActorSnapshots.js",
+    "migrate:analytics": "node scripts/backfillElectionAnalytics.js",
+    "migrate:votes": "node scripts/backfillVotes.js",
+    "worker:analytics": "node scripts/analyticsWorker.js",
+    "worker:elections": "node scripts/electionLifecycleWorker.js",
+    "worker:vote-side-effects": "node scripts/voteSideEffectWorker.js",
     "cleanup:news": "node scripts/removeNewsFeatureData.js",
     "seed:demo": "node scripts/seedStudentAppDemo.js",
+    "seed:load-vote": "node scripts/seedLoadVoteTest.js",
     "seed:review-demo": "node scripts/seedReviewDemoAccounts.js",
+    "load:read": "k6 run tests/load/read-flow.js",
+    "load:vote": "k6 run tests/load/vote-cast.js",
+    "cleanup:load-vote": "node scripts/cleanupLoadVoteTestData.js",
+    "cleanup:result-email-data": "node scripts/cleanupRetiredResultEmailData.js",
+    "cleanup:embedded-votes": "node scripts/cleanupEmbeddedElectionVotes.js",
     "test:runtime": "node scripts/runtimeTestStudentApi.js",
     "test:v6": "node scripts/testV6Additions.js"
   },
   "dependencies": {
+    "@sendgrid/mail": "^8.1.6",
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcryptjs": "^3.0.2",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
+    "firebase-admin": "^13.10.0",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.17.0",
     "mongoose": "^8.16.0",
     "multer": "^2.0.1",
     "nodemailer": "^7.0.3",
+    "redis": "^4.7.1",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
+  },
+  "allowScripts": {
+    "@firebase/util@1.15.1": true,
+    "protobufjs@7.6.2": true,
+    "sharp@0.34.5": true
   }
 }

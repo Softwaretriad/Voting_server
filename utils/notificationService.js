@@ -1,11 +1,12 @@
-import ECUser from "../models/ECUser.js";
 import Election from "../models/Election.js";
 import Notification from "../models/Notification.js";
 import Student from "../models/Student.js";
+import Vote from "../models/Vote.js";
 import Voter from "../models/Voter.js";
 import { emitNotification } from "./liveMonitorSocket.js";
 import { canDeliverNotification } from "./notificationPreferences.js";
 import { sendPushNotificationToDevices } from "./pushDelivery.js";
+import { EC_ROLE, ecRoleQuery } from "./ecRole.js";
 
 const isPushDebugEnabled = () =>
   String(process.env.PUSH_DEBUG || process.env.SOCKET_DEBUG || "").toLowerCase() === "true";
@@ -29,22 +30,17 @@ const mapNotification = (notification) => ({
   readAt: notification.readAt?.toISOString?.() || null,
 });
 
-const findAdminNotificationPreferenceOwner = async (adminId) => {
-  const legacyAdmin = await ECUser.findById(adminId).select("notificationPreferences");
-  if (legacyAdmin) {
-    return legacyAdmin;
-  }
-
+const findEcNotificationPreferenceOwner = async (ecUserId) => {
   return Student.findOne({
-    _id: adminId,
-    accountRole: "admin",
+    _id: ecUserId,
+    accountRole: ecRoleQuery(),
   }).select("notificationPreferences");
 };
 
 const createNotification = async ({
   recipientType,
   studentId = null,
-  adminId = null,
+  ecUserId = null,
   schoolId = null,
   type,
   title,
@@ -55,7 +51,7 @@ const createNotification = async ({
   const notification = await Notification.create({
     recipientType,
     studentId,
-    adminId,
+    ecUserId,
     schoolId,
     type,
     title,
@@ -67,11 +63,11 @@ const createNotification = async ({
   let recipient = null;
   if (recipientType === "student" && studentId) {
     recipient = await Student.findById(studentId).select("notificationPreferences");
-  } else if (recipientType === "admin" && adminId) {
-    recipient = await findAdminNotificationPreferenceOwner(adminId);
+  } else if (recipientType === EC_ROLE && ecUserId) {
+    recipient = await findEcNotificationPreferenceOwner(ecUserId);
   }
 
-  const resolvedRecipientId = recipientType === "student" ? studentId : adminId;
+  const resolvedRecipientId = recipientType === "student" ? studentId : ecUserId;
   const canDeliver = canDeliverNotification({
     preferences: recipient?.notificationPreferences,
     type,
@@ -158,7 +154,7 @@ export const notifyStudent = async ({
   });
 
 export const notifyAdmin = async ({
-  adminId,
+  ecUserId,
   schoolId = null,
   type,
   title,
@@ -167,8 +163,8 @@ export const notifyAdmin = async ({
   data = {},
 }) =>
   createNotification({
-    recipientType: "admin",
-    adminId,
+    recipientType: EC_ROLE,
+    ecUserId,
     schoolId,
     type,
     title,
@@ -196,7 +192,7 @@ export const notifyStudents = async ({
 };
 
 export const notifyAdmins = async ({
-  adminIds = [],
+  ecUserIds = [],
   schoolId = null,
   type,
   title,
@@ -204,12 +200,12 @@ export const notifyAdmins = async ({
   priority = "normal",
   data = {},
 }) => {
-  const uniqueAdminIds = Array.from(
-    new Set(adminIds.map((id) => String(id || "").trim()).filter(Boolean))
+  const uniqueEcUserIds = Array.from(
+    new Set(ecUserIds.map((id) => String(id || "").trim()).filter(Boolean))
   );
 
-  for (const adminId of uniqueAdminIds) {
-    await notifyAdmin({ adminId, schoolId, type, title, message, priority, data });
+  for (const ecUserId of uniqueEcUserIds) {
+    await notifyAdmin({ ecUserId, schoolId, type, title, message, priority, data });
   }
 };
 
@@ -220,23 +216,23 @@ export const notifySchoolAdmins = async ({
   message,
   priority = "normal",
   data = {},
-  excludeAdminIds = [],
+  excludeEcUserIds = [],
 }) => {
-  const [legacyAdmins, promotedStudentAdmins] = await Promise.all([
-    ECUser.find({ schoolId }).select("_id"),
-    Student.find({ schoolId, accountRole: "admin" }).select("_id"),
-  ]);
-  const excluded = new Set(excludeAdminIds.map((id) => String(id)));
-  const adminIds = Array.from(
+  const ecMembers = await Student.find({
+    schoolId,
+    accountRole: ecRoleQuery(),
+  }).select("_id");
+  const excluded = new Set(excludeEcUserIds.map((id) => String(id)));
+  const ecUserIds = Array.from(
     new Set(
-      [...legacyAdmins, ...promotedStudentAdmins]
-        .map((admin) => admin._id.toString())
+      ecMembers
+        .map((ecMember) => ecMember._id.toString())
         .filter((id) => !excluded.has(id))
     )
   );
 
   await notifyAdmins({
-    adminIds,
+    ecUserIds,
     schoolId,
     type,
     title,
@@ -346,7 +342,9 @@ export const maybeNotifyTurnoutMilestone = async (electionInput) => {
     return false;
   }
 
-  const turnoutPercentage = Math.floor(((election.votes?.length || 0) / eligibleCount) * 100);
+  const uniqueVoterIds = await Vote.distinct("voterId", { electionId: election._id });
+  const accreditedVoters = uniqueVoterIds.length;
+  const turnoutPercentage = Math.floor((accreditedVoters / eligibleCount) * 100);
   const milestones = [25, 50, 75, 100];
   const sent = new Set((election.notifications?.turnoutMilestonesSent || []).map(Number));
   const nextMilestone = milestones.find(

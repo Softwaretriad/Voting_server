@@ -1,10 +1,11 @@
 import mongoose from "mongoose";
+import { EC_ROLE } from "../utils/ecRole.js";
 
 const NotificationSchema = new mongoose.Schema(
   {
     recipientType: {
       type: String,
-      enum: ["student", "admin"],
+      enum: ["student", EC_ROLE],
       required: true,
       index: true,
     },
@@ -14,9 +15,9 @@ const NotificationSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
-    adminId: {
+    ecUserId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "ECUser",
+      ref: "Student",
       default: null,
       index: true,
     },

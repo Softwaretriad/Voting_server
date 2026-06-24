@@ -1,7 +1,7 @@
-import ECUser from "../models/ECUser.js";
 import Student from "../models/Student.js";
 import { sendError } from "../utils/apiResponse.js";
 import { verifyToken } from "../utils/studentAuth.js";
+import { ecRoleQuery, isEcRole } from "../utils/ecRole.js";
 
 export const protectDeleteAccount = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -14,10 +14,10 @@ export const protectDeleteAccount = async (req, res, next) => {
     const token = authHeader.split(" ")[1];
     const decoded = verifyToken(token);
 
-    if (decoded.role === "admin") {
+    if (isEcRole(decoded.role)) {
       const promotedAdmin = await Student.findOne({
         _id: decoded.userId,
-        accountRole: "admin",
+        accountRole: ecRoleQuery(),
       });
 
       if (promotedAdmin) {
@@ -25,16 +25,7 @@ export const protectDeleteAccount = async (req, res, next) => {
         return next();
       }
 
-      const legacyAdmin = await ECUser.findById(decoded.userId).select("_id");
-      if (legacyAdmin) {
-        return sendError(
-          res,
-          403,
-          "Legacy admin accounts cannot be deleted through this route"
-        );
-      }
-
-      return sendError(res, 401, "Admin user not found");
+      return sendError(res, 401, "EC user not found");
     }
 
     const student = await Student.findById(decoded.studentId);

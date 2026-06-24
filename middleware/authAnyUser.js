@@ -1,7 +1,7 @@
-import ECUser from "../models/ECUser.js";
 import Student from "../models/Student.js";
 import { sendError } from "../utils/apiResponse.js";
 import { verifyToken } from "../utils/studentAuth.js";
+import { EC_ROLE, ecRoleQuery, isEcRole } from "../utils/ecRole.js";
 
 export const protectAnyUser = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -14,21 +14,18 @@ export const protectAnyUser = async (req, res, next) => {
     const token = authHeader.split(" ")[1];
     const decoded = verifyToken(token);
 
-    if (decoded.role === "admin") {
-      let admin = await ECUser.findById(decoded.userId).select("-password");
-      if (!admin) {
-        admin = await Student.findOne({
-          _id: decoded.userId,
-          accountRole: "admin",
-        }).select("-password -votingPin");
-      }
+    if (isEcRole(decoded.role)) {
+      const admin = await Student.findOne({
+        _id: decoded.userId,
+        accountRole: ecRoleQuery(),
+      }).select("-password -votingPin");
 
       if (!admin) {
-        return sendError(res, 401, "Admin user not found");
+        return sendError(res, 401, "EC user not found");
       }
 
       req.authUser = {
-        recipientType: "admin",
+        recipientType: EC_ROLE,
         id: admin._id.toString(),
         schoolId: admin.schoolId?.toString?.() || "",
         document: admin,

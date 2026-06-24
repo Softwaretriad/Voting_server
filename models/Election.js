@@ -15,8 +15,8 @@ const ElectionSchema = new mongoose.Schema({
   description: { type: String, default: "" },
   subTitle: { type: String, default: "" },
   imageUrl: { type: String, default: "" },
-  startTime: { type: Date },
-  endTime: { type: Date, required: true },
+  startTime: { type: Date, default: null },
+  endTime: { type: Date, default: null },
   status: {
     type: String,
     enum: ["pending", "draft", "scheduled", "active", "ended", "closed"],
@@ -51,23 +51,10 @@ const ElectionSchema = new mongoose.Schema({
       categoryId: { type: mongoose.Schema.Types.ObjectId },
       voterId: { type: mongoose.Schema.Types.ObjectId, ref: "Voter" },
       studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
-      adminId: { type: mongoose.Schema.Types.ObjectId, ref: "ECUser" },
       timestamp: { type: Date, default: Date.now },
     },
   ],
-  resultsEmailSentAt: { type: Date, default: null },
-  resultsEmailSummary: {
-    recipientsTargeted: { type: Number, default: 0 },
-    recipientsSent: { type: Number, default: 0 },
-    failedRecipients: [
-      {
-        studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
-        email: String,
-        attempts: Number,
-        error: String,
-      },
-    ],
-  },
+  totalVotes: { type: Number, default: 0 },
   notifications: {
     startingSoonSentAt: { type: Date, default: null },
     closingSoonSentAt: { type: Date, default: null },
@@ -77,5 +64,8 @@ const ElectionSchema = new mongoose.Schema({
     turnoutMilestonesSent: { type: [Number], default: [] },
   },
 });
+
+ElectionSchema.index({ schoolId: 1, status: 1, startTime: 1 });
+ElectionSchema.index({ schoolId: 1, status: 1, createdAt: -1 });
 
 export default mongoose.model("Election", ElectionSchema);

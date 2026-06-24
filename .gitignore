@@ -33,6 +33,7 @@ coverage/
 
 # Temporary files
 *.zip
+.tmp/
 logs/
 public/assets/uploads/
 docs/

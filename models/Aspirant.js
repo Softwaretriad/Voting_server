@@ -36,5 +36,7 @@ const AspirantSchema = new mongoose.Schema(
   }
 );
 
+AspirantSchema.index({ electionId: 1, schoolId: 1, categoryId: 1 });
+
 export default mongoose.models.Aspirant ||
   mongoose.model("Aspirant", AspirantSchema);

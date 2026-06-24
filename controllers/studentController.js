@@ -1,21 +1,39 @@
+import mongoose from "mongoose";
 import Student from "../models/Student.js";
-import ECUser from "../models/ECUser.js";
 import School from "../models/school.js";
 import Election from "../models/Election.js";
 import Notification from "../models/Notification.js";
 import PushDevice from "../models/PushDevice.js";
+import Vote from "../models/Vote.js";
 import { sanitizeStudentProfile, sendError } from "../utils/apiResponse.js";
 import { resolveLogoUrl } from "../utils/logoUrl.js";
 import sendEmail from "../utils/sendEmail.js";
 import { recordActivity } from "../utils/activityLog.js";
 import { createOtp, getOtpExpiry } from "../utils/studentAuth.js";
 import { hashSecret, normalizeEmail } from "../utils/security.js";
+import { emailMatchesAllowedDomains } from "../utils/emailDomains.js";
 import { notifyStudent } from "../utils/notificationService.js";
+import { EC_ROLE, isEcAccountRole } from "../utils/ecRole.js";
+
+const SCHOOL_LOGO_CACHE_TTL_MS = Number(process.env.SCHOOL_LOGO_CACHE_TTL_MS || 30000);
+const schoolLogoCache = new Map();
 
 const getStudentLogoUrl = async (req, student) => {
-  const school = student.schoolId
-    ? await School.findById(student.schoolId).select("logoUrl")
-    : null;
+  const schoolId = student.schoolId?.toString?.();
+  if (!schoolId) {
+    return resolveLogoUrl(req, "");
+  }
+
+  const cached = schoolLogoCache.get(schoolId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return resolveLogoUrl(req, cached.logoUrl);
+  }
+
+  const school = await School.findById(student.schoolId).select("logoUrl").lean();
+  schoolLogoCache.set(schoolId, {
+    logoUrl: school?.logoUrl || "",
+    expiresAt: Date.now() + SCHOOL_LOGO_CACHE_TTL_MS,
+  });
 
   return resolveLogoUrl(req, school?.logoUrl);
 };
@@ -34,43 +52,33 @@ const sendUpdatedEmailVerificationOtp = async (student) => {
 };
 
 const anonymizeElectionVotesForDeletedStudent = async (studentObjectId) => {
-  const elections = await Election.find({
-    $or: [{ "votes.studentId": studentObjectId }, { "votes.adminId": studentObjectId }],
-  });
+  const storedVotes = await Vote.find({ voterId: studentObjectId }).select("_id");
+  await Promise.all(
+    storedVotes.map((vote) =>
+      Vote.updateOne(
+        { _id: vote._id },
+        {
+          $set: {
+            voterId: new mongoose.Types.ObjectId(),
+            studentId: null,
+            ecUserId: null,
+          },
+        }
+      )
+    )
+  );
 
-  for (const election of elections) {
-    let hasChanges = false;
-
-    election.votes.forEach((vote) => {
-      if (vote.studentId?.toString() === studentObjectId.toString()) {
-        vote.studentId = null;
-        hasChanges = true;
-      }
-
-      if (vote.adminId?.toString() === studentObjectId.toString()) {
-        vote.adminId = null;
-        hasChanges = true;
-      }
-    });
-
-    if (hasChanges) {
-      await election.save();
-    }
-  }
 };
 
 export const getStudentProfile = async (req, res) => {
   try {
     const { userId } = req.params;
-    const student = await Student.findById(userId);
-
-    if (!student) {
-      return sendError(res, 404, "Student not found");
-    }
 
     if (req.student._id.toString() !== userId) {
       return sendError(res, 403, "You are not allowed to access this profile");
     }
+
+    const student = req.student;
 
     return res.status(200).json(
       sanitizeStudentProfile(student, {
@@ -156,22 +164,26 @@ export const changeStudentEmail = async (req, res) => {
       return sendError(res, 409, "Please provide a different email address");
     }
 
-    const [existingStudent, existingAdmin] = await Promise.all([
-      Student.findOne({
-        email: normalizedEmail,
-        _id: { $ne: student._id },
-      }).select("_id"),
-      ECUser.findOne({ email: normalizedEmail }).select("_id"),
-    ]);
-
-    if (existingAdmin) {
+    const school = await School.findById(student.schoolId)
+      .select("allowedEmailDomains")
+      .lean();
+    if (!school?.allowedEmailDomains?.length) {
+      return sendError(res, 400, "Your university has no allowed email domains configured");
+    }
+    if (!emailMatchesAllowedDomains(normalizedEmail, school.allowedEmailDomains)) {
       return sendError(
         res,
         400,
-        "This email address is already associated with an administrator account. Please use a different email."
+        `Email must use one of your university's allowed domains: ${school.allowedEmailDomains.join(
+          ", "
+        )}`
       );
     }
 
+    const existingStudent = await Student.findOne({
+      email: normalizedEmail,
+      _id: { $ne: student._id },
+    }).select("_id");
     if (existingStudent) {
       return sendError(res, 409, "Email already registered");
     }
@@ -221,8 +233,12 @@ export const getStudentVoteHistory = async (req, res) => {
       return sendError(res, 403, "You are not allowed to access this vote history");
     }
 
+    const voteElectionIds = await Vote.distinct("electionId", {
+      voterId: req.student._id,
+      ...(req.student.schoolId ? { schoolId: req.student.schoolId } : {}),
+    });
     const elections = await Election.find({
-      "votes.studentId": req.student._id,
+      _id: { $in: voteElectionIds },
       ...(req.student.schoolId ? { schoolId: req.student.schoolId } : {}),
     }).sort({ startTime: -1, createdAt: -1 });
 
@@ -289,21 +305,21 @@ export const deleteStudentAccount = async (req, res) => {
       return sendError(res, 401, "Invalid password");
     }
 
-    const wasAdmin = student.accountRole === "admin";
+    const wasAdmin = isEcAccountRole(student.accountRole);
 
     await Promise.all([
       anonymizeElectionVotesForDeletedStudent(student._id),
       Notification.deleteMany({
-        $or: [{ studentId: student._id }, { adminId: student._id }],
+        $or: [{ studentId: student._id }, { ecUserId: student._id }],
       }),
       PushDevice.deleteMany({
         recipientId: student._id,
-        recipientType: { $in: ["student", "admin"] },
+        recipientType: { $in: ["student", EC_ROLE] },
       }),
     ]);
 
     await recordActivity({
-      actorType: wasAdmin ? "admin" : "student",
+      actorType: wasAdmin ? EC_ROLE : "student",
       actorId: student._id,
       schoolId: student.schoolId,
       action: "Account Deleted",

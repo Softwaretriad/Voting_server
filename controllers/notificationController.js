@@ -1,16 +1,17 @@
 import Notification from "../models/Notification.js";
-import ECUser from "../models/ECUser.js";
 import Student from "../models/Student.js";
 import { sendError } from "../utils/apiResponse.js";
 import {
   normalizeNotificationPreferences,
 } from "../utils/notificationPreferences.js";
+import { EC_ROLE, ecRecipientTypeQuery, ecRoleQuery, normalizeRecipientType } from "../utils/ecRole.js";
 
 const mapNotification = (notification) => ({
   _id: notification._id.toString(),
-  recipientType:
+  recipientType: normalizeRecipientType(
     notification.recipientType ||
-    (notification.studentId ? "student" : notification.adminId ? "admin" : "student"),
+      (notification.studentId ? "student" : notification.ecUserId ? EC_ROLE : "student")
+  ),
   type: notification.type || "legacy_notification",
   title: notification.title,
   message: notification.message,
@@ -37,15 +38,10 @@ const applyNotificationPreferenceUpdates = (target, updates = {}) => {
   return target.notificationPreferences;
 };
 
-const findAdminPreferenceOwner = async (adminUserId) => {
-  const legacyAdmin = await ECUser.findById(adminUserId).select("notificationPreferences");
-  if (legacyAdmin) {
-    return legacyAdmin;
-  }
-
+const findEcPreferenceOwner = async (ecUserId) => {
   return Student.findOne({
-    _id: adminUserId,
-    accountRole: "admin",
+    _id: ecUserId,
+    accountRole: ecRoleQuery(),
   }).select("notificationPreferences");
 };
 
@@ -112,25 +108,57 @@ export const markStudentNotificationAsRead = async (req, res) => {
   }
 };
 
+export const markAllStudentNotificationsAsRead = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (req.student._id.toString() !== userId) {
+      return sendError(res, 403, "You are not allowed to update these notifications");
+    }
+
+    const readAt = new Date();
+    const result = await Notification.updateMany(
+      {
+        isRead: false,
+        $or: [
+          {
+            recipientType: "student",
+            studentId: userId,
+          },
+          {
+            studentId: userId,
+            recipientType: { $exists: false },
+          },
+        ],
+      },
+      {
+        $set: {
+          isRead: true,
+          readAt,
+        },
+      }
+    );
+
+    return res.status(200).json({
+      updatedCount: result.modifiedCount || 0,
+      readAt: readAt.toISOString(),
+    });
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to update notifications");
+  }
+};
+
 export const getAdminNotifications = async (req, res) => {
   try {
-    const { adminUserId } = req.params;
+    const { ecUserId } = req.params;
 
-    if (req.ecUser._id.toString() !== adminUserId) {
+    if (req.ecUser._id.toString() !== ecUserId) {
       return sendError(res, 403, "You are not allowed to access these notifications");
     }
 
     const notifications = await Notification.find({
-      $or: [
-        {
-          recipientType: "admin",
-          adminId: adminUserId,
-        },
-        {
-          adminId: adminUserId,
-          recipientType: { $exists: false },
-        },
-      ],
+      recipientType: ecRecipientTypeQuery(),
+      ecUserId,
     }).sort({ createdAt: -1 });
 
     return res.status(200).json(notifications.map(mapNotification));
@@ -141,24 +169,17 @@ export const getAdminNotifications = async (req, res) => {
 
 export const markAdminNotificationAsRead = async (req, res) => {
   try {
-    const { adminUserId, notificationId } = req.params;
+    const { ecUserId } = req.params;
+    const { notificationId } = req.params;
 
-    if (req.ecUser._id.toString() !== adminUserId) {
+    if (req.ecUser._id.toString() !== ecUserId) {
       return sendError(res, 403, "You are not allowed to update these notifications");
     }
 
     const notification = await Notification.findOne({
       _id: notificationId,
-      $or: [
-        {
-          recipientType: "admin",
-          adminId: adminUserId,
-        },
-        {
-          adminId: adminUserId,
-          recipientType: { $exists: false },
-        },
-      ],
+      recipientType: ecRecipientTypeQuery(),
+      ecUserId,
     });
 
     if (!notification) {
@@ -172,6 +193,38 @@ export const markAdminNotificationAsRead = async (req, res) => {
     return res.status(200).json(mapNotification(notification));
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to update notification");
+  }
+};
+
+export const markAllAdminNotificationsAsRead = async (req, res) => {
+  try {
+    const { ecUserId } = req.params;
+
+    if (req.ecUser._id.toString() !== ecUserId) {
+      return sendError(res, 403, "You are not allowed to update these notifications");
+    }
+
+    const readAt = new Date();
+    const result = await Notification.updateMany(
+      {
+        isRead: false,
+        recipientType: ecRecipientTypeQuery(),
+        ecUserId,
+      },
+      {
+        $set: {
+          isRead: true,
+          readAt,
+        },
+      }
+    );
+
+    return res.status(200).json({
+      updatedCount: result.modifiedCount || 0,
+      readAt: readAt.toISOString(),
+    });
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to update notifications");
   }
 };
 
@@ -218,18 +271,18 @@ export const updateStudentNotificationPreferences = async (req, res) => {
 
 export const getAdminNotificationPreferences = async (req, res) => {
   try {
-    const { adminUserId } = req.params;
+    const { ecUserId } = req.params;
 
-    if (req.ecUser._id.toString() !== adminUserId) {
+    if (req.ecUser._id.toString() !== ecUserId) {
       return sendError(res, 403, "You are not allowed to access these notification preferences");
     }
 
-    const admin = await findAdminPreferenceOwner(adminUserId);
-    if (!admin) {
-      return sendError(res, 404, "Admin not found");
+    const ecUser = await findEcPreferenceOwner(ecUserId);
+    if (!ecUser) {
+      return sendError(res, 404, "EC user not found");
     }
 
-    return res.status(200).json(mapNotificationPreferences(admin.notificationPreferences));
+    return res.status(200).json(mapNotificationPreferences(ecUser.notificationPreferences));
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load notification preferences");
   }
@@ -237,21 +290,21 @@ export const getAdminNotificationPreferences = async (req, res) => {
 
 export const updateAdminNotificationPreferences = async (req, res) => {
   try {
-    const { adminUserId } = req.params;
+    const { ecUserId } = req.params;
 
-    if (req.ecUser._id.toString() !== adminUserId) {
+    if (req.ecUser._id.toString() !== ecUserId) {
       return sendError(res, 403, "You are not allowed to update these notification preferences");
     }
 
-    const admin = await findAdminPreferenceOwner(adminUserId);
-    if (!admin) {
-      return sendError(res, 404, "Admin not found");
+    const ecUser = await findEcPreferenceOwner(ecUserId);
+    if (!ecUser) {
+      return sendError(res, 404, "EC user not found");
     }
 
-    applyNotificationPreferenceUpdates(admin, req.body || {});
-    await admin.save();
+    applyNotificationPreferenceUpdates(ecUser, req.body || {});
+    await ecUser.save();
 
-    return res.status(200).json(mapNotificationPreferences(admin.notificationPreferences));
+    return res.status(200).json(mapNotificationPreferences(ecUser.notificationPreferences));
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to update notification preferences");
   }

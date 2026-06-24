@@ -419,9 +419,6 @@ const run = async () => {
     throw new Error("Election results processor did not close the election.");
   }
 
-  if (!processedElection.resultsEmailSentAt) {
-    throw new Error("Election results processor did not record resultsEmailSentAt.");
-  }
 
   const logoutResult = await request("/auth/logout", {
     method: "POST",

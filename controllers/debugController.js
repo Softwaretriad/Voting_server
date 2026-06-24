@@ -39,7 +39,7 @@ export const sendTestPushNotification = async (req, res) => {
       });
     } else {
       await notifyAdmin({
-        adminId: req.authUser.id,
+        ecUserId: req.authUser.id,
         ...payload,
       });
     }

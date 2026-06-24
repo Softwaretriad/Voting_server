@@ -6,7 +6,7 @@ import {
   verifyVotingPin,
   verifyVotingPinResetOtp,
 } from "../controllers/studentVoteController.js";
-import { protectStudent } from "../middleware/authStudent.js";
+import { protectStudent, protectVotingStudent } from "../middleware/authStudent.js";
 import { createRateLimiter } from "../middleware/rateLimit.js";
 import { validate, validators } from "../middleware/validate.js";
 
@@ -36,6 +36,6 @@ router.post(
   validate(validators.verifyVotingPin),
   verifyVotingPin
 );
-router.post("/cast", protectStudent, validate(validators.castVote), castStudentVote);
+router.post("/cast", protectVotingStudent, validate(validators.castVote), castStudentVote);
 
 export default router;

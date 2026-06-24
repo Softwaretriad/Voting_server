@@ -1,0 +1,52 @@
+services:
+  server:
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: rediss://myunivote-ffm5yl.serverless.use1.cache.amazonaws.com:6379
+    ports:
+      - "5000:5000"
+    networks:
+      - app_private
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - >
+        redis-server
+        --appendonly yes
+        --requirepass "$$REDIS_PASSWORD"
+        --maxmemory "$${REDIS_MAXMEMORY:-256mb}"
+        --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-allkeys-lru}"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}
+      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-allkeys-lru}
+    expose:
+      - "6379"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - app_private
+
+volumes:
+  redis_data:
+
+networks:
+  app_private:
+    driver: bridge

@@ -1,10 +1,11 @@
 import mongoose from "mongoose";
+import { EC_ROLE } from "../utils/ecRole.js";
 
 const PushDeviceSchema = new mongoose.Schema(
   {
     recipientType: {
       type: String,
-      enum: ["student", "admin"],
+      enum: ["student", EC_ROLE],
       required: true,
       index: true,
     },

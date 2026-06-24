@@ -1,6 +1,6 @@
 # MyUniVote Backend API
 
-REST API for the MyUniVote mobile platform. This backend supports the student app contract, the admin election flow, runtime verification scripts, and post-election result delivery by email with PDF attachments.
+REST API for the MyUniVote mobile platform. This backend supports the student app contract, school administration, EC election operations, and runtime verification scripts.
 
 ## What This Backend Covers
 
@@ -9,7 +9,7 @@ REST API for the MyUniVote mobile platform. This backend supports the student ap
 - Student profile, active elections, schedule, statistics, notifications, voting, and results endpoints
 - Admin election management endpoints for listing, creating, updating, scheduling, and deleting elections
 - Uploaded voter registry rows stored in the `Voter` collection, while registered app users live in the `Student` collection
-- Automatic election-close processing that generates result PDFs and emails verified voters
+- Automatic election-close processing with live notifications and result availability through the API
 - Runtime smoke tests and a Postman collection for manual API verification
 
 ## Stack
@@ -18,8 +18,7 @@ REST API for the MyUniVote mobile platform. This backend supports the student ap
 - Express
 - MongoDB with Mongoose
 - JWT authentication
-- Nodemailer for email delivery
-- PDF generation for election result summaries
+- SendGrid or SMTP for transactional OTP and account-recovery email
 
 ## Route Overview
 
@@ -277,14 +276,13 @@ Important implementation files:
 When an active election passes its end time, the backend can:
 
 - close the election
-- build a PDF result summary
-- email verified student voters
-- record delivery status on the election document
+- refresh result analytics
+- publish result notifications and socket updates
+- expose results through the existing student and EC API endpoints
 
 Relevant files:
 
 - `utils/electionResultsProcessor.js`
-- `utils/pdfResults.js`
 
 ## Migrations
 

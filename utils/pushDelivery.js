@@ -1,6 +1,7 @@
 import http2 from "http2";
 import jwt from "jsonwebtoken";
 import PushDevice from "../models/PushDevice.js";
+import { EC_ROLE, ecRecipientTypeQuery } from "./ecRole.js";
 
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const APNS_PRODUCTION_URL = "https://api.push.apple.com";
@@ -311,7 +312,7 @@ export const sendPushNotificationToDevices = async ({
   }
 
   const devices = await PushDevice.find({
-    recipientType,
+    recipientType: recipientType === EC_ROLE ? ecRecipientTypeQuery() : recipientType,
     recipientId: normalizedRecipientId,
     isActive: true,
     notificationsEnabled: true,

@@ -1,6 +1,5 @@
 import ActivityLog from "../models/ActivityLog.js";
 import Aspirant from "../models/Aspirant.js";
-import ECUser from "../models/ECUser.js";
 import Election from "../models/Election.js";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
@@ -13,9 +12,28 @@ import {
   syncSchoolSubscriptionState,
 } from "../utils/plans.js";
 import { registerMonitorPayloadBuilder } from "../utils/liveMonitorSocket.js";
+import { EC_ROLE, ecRoleQuery, normalizeActorType } from "../utils/ecRole.js";
+import { getStoredVotesForElection } from "../utils/voteStore.js";
+import { buildPaginationMeta, getPagination } from "../utils/pagination.js";
+import { getCacheJson, setCacheJson } from "../utils/redisClient.js";
+import {
+  getElectionAnalyticsSnapshot,
+  refreshElectionAnalyticsSnapshot,
+} from "../utils/electionAnalytics.js";
 
 const normalizeElectionStatus = (status) =>
   status === "ended" ? "closed" : status === "pending" ? "draft" : status;
+
+const attachStoredVotes = async (election) => {
+  const votes = await getStoredVotesForElection(election);
+  const electionObject = election.toObject?.() || election;
+  return {
+    ...electionObject,
+    _id: election._id,
+    votes,
+    totalVotes: votes.length || election.totalVotes || 0,
+  };
+};
 
 const ensureSchoolAccess = (req, res, schoolId) => {
   if (req.schoolId?.toString() !== schoolId?.toString()) {
@@ -28,25 +46,47 @@ const ensureSchoolAccess = (req, res, schoolId) => {
 
 const mapActivity = (log) => ({
   _id: log._id.toString(),
-  actorType: log.actorType,
+  actorType: normalizeActorType(log.actorType),
   actorId: log.actorId?.toString?.() || null,
+  actorName: log.actorName || "",
+  actorFirstName: log.actorFirstName || "",
+  actorLastName: log.actorLastName || "",
+  actorEmail: log.actorEmail || "",
+  actorStudentId: log.actorStudentId || "",
   action: log.action,
   metadata: log.metadata || {},
   createdAt: log.createdAt.toISOString(),
   updatedAt: log.updatedAt.toISOString(),
 });
 
-const getVoteParticipantKey = (vote) => {
-  if (vote.studentId) {
-    return `student:${vote.studentId.toString()}`;
-  }
+const stripActorMetadata = (metadata = {}) => {
+  const {
+    ecName,
+    ecFirstName,
+    ecLastName,
+    ecEmail,
+    ecStudentId,
+    actorName,
+    actorFirstName,
+    actorLastName,
+    actorEmail,
+    actorStudentId,
+    ...activityMetadata
+  } = metadata || {};
 
-  if (vote.adminId) {
-    return `admin:${vote.adminId.toString()}`;
-  }
-
-  return null;
+  return activityMetadata;
 };
+
+const getVoteStudentIdentity = (vote) =>
+  vote.studentId || vote.ecUserId || vote.voterId || null;
+
+const getAccreditedVoterKey = (vote) => {
+  const identity = getVoteStudentIdentity(vote);
+  return identity ? identity.toString() : null;
+};
+
+const getAccreditedVoterCount = (votes = []) =>
+  new Set(votes.map((vote) => getAccreditedVoterKey(vote)).filter(Boolean)).size;
 
 const formatHourLabel = (date) => {
   const hours = date.getUTCHours();
@@ -202,94 +242,6 @@ const buildCategoryLeaders = ({ election, aspirants }) =>
     };
   });
 
-const buildElectionReport = ({ election, aspirants, studentsInSchool }) => {
-  const studentById = new Map(
-    studentsInSchool.map((student) => [student._id.toString(), student])
-  );
-  const electionVotes = election.votes || [];
-  const totalEligibleVoters =
-    election.eligibleVoters?.length > 0
-      ? election.eligibleVoters.length
-      : studentsInSchool.length;
-  const uniqueVoterIds = new Set(
-    electionVotes.map((vote) => getVoteParticipantKey(vote)).filter(Boolean)
-  );
-  const totalVotes = electionVotes.length;
-  const turnoutPercentage =
-    totalEligibleVoters > 0
-      ? Number(((uniqueVoterIds.size / totalEligibleVoters) * 100).toFixed(2))
-      : 0;
-
-  let maleVotes = 0;
-  let femaleVotes = 0;
-  const departmentMap = new Map();
-
-  electionVotes.forEach((vote) => {
-    const student = studentById.get(vote.studentId?.toString());
-    if (!student) return;
-
-    if (student.gender === "male") maleVotes += 1;
-    if (student.gender === "female") femaleVotes += 1;
-
-    const department = student.department || "Unknown";
-    departmentMap.set(department, (departmentMap.get(department) || 0) + 1);
-  });
-
-  const categories = (election.categories || []).map((category) => {
-    const categoryId = category._id.toString();
-    const categoryAspirants = aspirants.filter(
-      (aspirant) => aspirant.categoryId?.toString() === categoryId
-    );
-    const categoryResults = categoryAspirants
-      .map((aspirant) => ({
-        _id: aspirant._id.toString(),
-        name: aspirant.name,
-        studentId: aspirant.studentId || "",
-        programmeOfStudy: aspirant.programmeOfStudy || "",
-        level: aspirant.level || "",
-        faculty: aspirant.faculty || "",
-        electoralCategory: aspirant.electoralCategory || category.title,
-        position: aspirant.electoralCategory || category.title,
-        department: aspirant.faculty || "",
-        imageUrl: aspirant.imageUrl || "",
-        voteCount: aspirant.voteCount || 0,
-      }))
-      .sort((a, b) => b.voteCount - a.voteCount || a.name.localeCompare(b.name));
-
-    return {
-      _id: categoryId,
-      title: category.title,
-      subTitle: category.subTitle || election.subTitle || "",
-      totalVotes: electionVotes.filter(
-        (vote) => vote.categoryId?.toString() === categoryId
-      ).length,
-      winner: categoryResults[0] || null,
-      aspirants: categoryResults,
-    };
-  });
-
-  return {
-    _id: election._id.toString(),
-    title: election.title,
-    description: election.description || "",
-    status: normalizeElectionStatus(election.status),
-    startDate: election.startTime ? election.startTime.toISOString() : null,
-    endDate: election.endTime ? election.endTime.toISOString() : null,
-    totalEligibleVoters,
-    totalVotes,
-    uniqueVoters: uniqueVoterIds.size,
-    turnoutPercentage,
-    genderStats: {
-      maleVotes,
-      femaleVotes,
-    },
-    departmentStats: Array.from(departmentMap.entries())
-      .map(([department, voteCount]) => ({ department, voteCount }))
-      .sort((a, b) => b.voteCount - a.voteCount || a.department.localeCompare(b.department)),
-    categories,
-  };
-};
-
 export const getAdminDashboard = async (req, res) => {
   try {
     const { schoolId } = req.params;
@@ -299,7 +251,7 @@ export const getAdminDashboard = async (req, res) => {
     }
 
     const [school, elections, studentsCount] = await Promise.all([
-      School.findById(schoolId).populate("ecMembers", "name email"),
+      School.findById(schoolId),
       Election.find({ schoolId }).sort({ startTime: -1, createdAt: -1 }),
       Student.countDocuments({ schoolId }),
     ]);
@@ -308,6 +260,7 @@ export const getAdminDashboard = async (req, res) => {
       return sendError(res, 404, "School not found");
     }
     syncSchoolSubscriptionState(school);
+    const electionsWithVotes = await Promise.all(elections.map(attachStoredVotes));
 
     const electionCounts = {
       draft: 0,
@@ -316,30 +269,40 @@ export const getAdminDashboard = async (req, res) => {
       closed: 0,
     };
 
-    elections.forEach((election) => {
+    electionsWithVotes.forEach((election) => {
       const status = normalizeElectionStatus(election.status);
       if (status in electionCounts) {
         electionCounts[status] += 1;
       }
     });
 
-    const activeElectionsList = elections
+    const activeElectionsList = electionsWithVotes
       .filter((election) => {
         const status = normalizeElectionStatus(election.status);
         return status === "active" || status === "scheduled";
       })
-      .map((election) => ({
-        _id: election._id.toString(),
-        title: election.title,
-        status: normalizeElectionStatus(election.status),
-        votesCast: election.votes?.length || 0,
-        eligibleVoters:
-          election.eligibleVoters?.length > 0
-            ? election.eligibleVoters.length
-            : studentsCount,
-        startDate: election.startTime?.toISOString() || null,
-        endDate: election.endTime?.toISOString() || null,
-      }))
+      .map((election) => {
+        const accreditedVoters = getAccreditedVoterCount(election.votes);
+        const ballotsCast = election.votes?.length || 0;
+
+        return {
+          _id: election._id.toString(),
+          title: election.title,
+          status: normalizeElectionStatus(election.status),
+          imageUrl: election.imageUrl || "",
+          votesCast: accreditedVoters,
+          totalVotes: ballotsCast,
+          accreditedVoters,
+          ballotsCast,
+          totalBallotsCast: ballotsCast,
+          eligibleVoters:
+            election.eligibleVoters?.length > 0
+              ? election.eligibleVoters.length
+              : studentsCount,
+          startDate: election.startTime?.toISOString() || null,
+          endDate: election.endTime?.toISOString() || null,
+        };
+      })
       .sort((a, b) => {
         const aTime = a.startDate ? new Date(a.startDate).getTime() : Number.MAX_SAFE_INTEGER;
         const bTime = b.startDate ? new Date(b.startDate).getTime() : Number.MAX_SAFE_INTEGER;
@@ -353,7 +316,8 @@ export const getAdminDashboard = async (req, res) => {
       _id: school._id.toString(),
       fullName: school.fullName || school.name,
       logoUrl: resolveLogoUrl(req, school.logoUrl),
-      adminName: req.ecUser?.name || "",
+      firstName: req.ecUser?.firstName || "",
+      lastName: req.ecUser?.lastName || "",
       scheduledElections: electionCounts.scheduled,
       activeElections: electionCounts.active,
       closedElections: electionCounts.closed,
@@ -369,7 +333,7 @@ export const getAdminDashboard = async (req, res) => {
       activeElectionsList,
     });
   } catch (error) {
-    return sendError(res, 500, error.message || "Failed to load admin dashboard");
+    return sendError(res, 500, error.message || "Failed to load EC dashboard");
   }
 };
 
@@ -384,21 +348,23 @@ export const getAdminReports = async (req, res) => {
     const [school, elections, studentsInSchool, adminsInSchool] = await Promise.all([
       School.findById(schoolId).select("name fullName shortName"),
       Election.find({ schoolId }).sort({ startTime: -1, createdAt: -1 }),
-      Student.find({ schoolId }).select("_id"),
-      ECUser.find({ schoolId }).select("_id"),
+      Student.find({ schoolId, accountRole: "student" }).select("_id"),
+      Student.find({ schoolId, accountRole: ecRoleQuery() }).select("_id"),
     ]);
 
     if (!school) {
       return sendError(res, 404, "School not found");
     }
 
+    const pagination = getPagination(req.query);
     const totalEligibleVoters = studentsInSchool.length + adminsInSchool.length;
-    const reports = elections.map((election) => {
-      const uniqueVoters = new Set(
-        (election.votes || [])
-          .map((vote) => getVoteParticipantKey(vote))
-          .filter(Boolean)
-      ).size;
+    const electionsWithVotes = await Promise.all(elections.map(attachStoredVotes));
+    const pagedElections = pagination.enabled
+      ? electionsWithVotes.slice(pagination.skip, pagination.skip + pagination.limit)
+      : electionsWithVotes;
+    const reports = pagedElections.map((election) => {
+      const uniqueVoters = getAccreditedVoterCount(election.votes);
+      const ballotsCast = election.votes?.length || 0;
 
       return {
         _id: election._id.toString(),
@@ -406,8 +372,12 @@ export const getAdminReports = async (req, res) => {
         status: normalizeElectionStatus(election.status),
         startDate: election.startTime?.toISOString() || null,
         endDate: election.endTime?.toISOString() || null,
-        totalVotes: election.votes?.length || 0,
+        totalVotes: ballotsCast,
+        votesCast: uniqueVoters,
         uniqueVoters,
+        accreditedVoters: uniqueVoters,
+        ballotsCast,
+        totalBallotsCast: ballotsCast,
         turnoutPercentage:
           totalEligibleVoters > 0
             ? Number(((uniqueVoters / totalEligibleVoters) * 100).toFixed(2))
@@ -425,24 +395,37 @@ export const getAdminReports = async (req, res) => {
       },
       totalEligibleVoters,
       reports,
+      ...(pagination.enabled
+        ? {
+            pagination: buildPaginationMeta({
+              ...pagination,
+              total: electionsWithVotes.length,
+            }),
+          }
+        : {}),
     });
   } catch (error) {
-    return sendError(res, 500, error.message || "Failed to load admin reports");
+    return sendError(res, 500, error.message || "Failed to load EC reports");
   }
 };
 
 export const getAdminElectionReport = async (req, res) => {
  try {
     const { electionId } = req.params;
-    const election = await Election.findById(electionId);
+    const storedElection = await Election.findById(electionId);
 
-    if (!election) {
+    if (!storedElection) {
       return sendError(res, 404, "Election not found");
     }
 
-    if (!ensureSchoolAccess(req, res, election.schoolId)) {
+    if (!ensureSchoolAccess(req, res, storedElection.schoolId)) {
       return;
     }
+
+    const snapshot =
+      (await getElectionAnalyticsSnapshot(storedElection._id)) ||
+      (await refreshElectionAnalyticsSnapshot(storedElection));
+    const election = await attachStoredVotes(storedElection);
 
     const [aspirants, voters, students, admins] = await Promise.all([
       Aspirant.find({ electionId: election._id, schoolId: election.schoolId }).sort({
@@ -453,20 +436,20 @@ export const getAdminElectionReport = async (req, res) => {
       Voter.find({ electionId: election._id, schoolId: election.schoolId }).select(
         "studentId faculty"
       ),
-      Student.find({ schoolId: election.schoolId }).select("_id studentId department"),
-      ECUser.find({ schoolId: election.schoolId }).select("_id"),
+      Student.find({ schoolId: election.schoolId }).select("_id studentId department accountRole"),
+      Student.find({ schoolId: election.schoolId, accountRole: ecRoleQuery() }).select("_id"),
     ]);
 
     const uniqueStudentVoterIds = Array.from(
       new Set(
         (election.votes || [])
-          .map((vote) => vote.studentId?.toString())
+          .map((vote) => getVoteStudentIdentity(vote)?.toString())
           .filter(Boolean)
       )
     );
-    const uniqueParticipantIds = new Set(
+    const uniqueAccreditedVoterIds = new Set(
       (election.votes || [])
-        .map((vote) => getVoteParticipantKey(vote))
+        .map((vote) => getAccreditedVoterKey(vote))
         .filter(Boolean)
     );
     const studentById = new Map(students.map((student) => [student._id.toString(), student]));
@@ -475,15 +458,18 @@ export const getAdminElectionReport = async (req, res) => {
     );
 
     const registeredVoters =
-      (voters.length > 0 ? voters.length : election.eligibleVoters?.length || students.length) +
-      admins.length;
-    const accreditedVoters = uniqueParticipantIds.size;
-    const votesCast = election.votes?.length || 0;
+      snapshot?.registeredVoters ||
+      (voters.length > 0 ? voters.length : election.eligibleVoters?.length || students.length + admins.length);
+    const accreditedVoters = uniqueAccreditedVoterIds.size;
+    const ballotsCast = election.votes?.length || 0;
+    const votesCast = accreditedVoters;
     const turnoutPercentage =
       registeredVoters > 0
-        ? Number(((accreditedVoters / registeredVoters) * 100).toFixed(1))
-        : 0;
-    const turnoutTrend = buildTurnoutTrend(election);
+      ? Number(((accreditedVoters / registeredVoters) * 100).toFixed(1))
+      : 0;
+    const turnoutTrend = snapshot?.turnoutTrend?.length
+      ? snapshot.turnoutTrend
+      : buildTurnoutTrend(election);
 
     return res.status(200).json({
       _id: election._id.toString(),
@@ -491,20 +477,29 @@ export const getAdminElectionReport = async (req, res) => {
       lastUpdatedAt: new Date().toISOString(),
       registeredVoters,
       votesCast,
+      totalVotes: ballotsCast,
+      ballotsCast,
+      totalBallotsCast: ballotsCast,
       positionsCount: election.categories?.length || 0,
       turnoutPercentage,
       turnoutGrowthPercentage: buildTurnoutGrowthPercentage(turnoutTrend),
       accreditedVoters,
       timeRemaining: formatTimeRemaining(election.endTime),
-      categoryLeaders: buildCategoryLeaders({ election, aspirants }),
+      categoryLeaders: snapshot?.categoryLeaders?.length
+        ? snapshot.categoryLeaders
+        : buildCategoryLeaders({ election, aspirants }),
       turnoutTrend,
-      voteDistribution: buildVoteDistribution(election),
-      facultyVoteStatus: buildFacultyVoteStatus({
-        registeredVoters: voters,
-        uniqueStudentVoterIds,
-        studentById,
-        registryFacultyByStudentId,
-      }),
+      voteDistribution: snapshot?.voteDistribution?.length
+        ? snapshot.voteDistribution
+        : buildVoteDistribution(election),
+      facultyVoteStatus: snapshot?.facultyVoteStatus?.length
+        ? snapshot.facultyVoteStatus
+        : buildFacultyVoteStatus({
+            registeredVoters: voters,
+            uniqueStudentVoterIds,
+            studentById,
+            registryFacultyByStudentId,
+          }),
     });
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load election report");
@@ -524,49 +519,116 @@ export const getAdminActivity = async (req, res) => {
       return sendError(res, 404, "School not found");
     }
 
-    const [logs, admins] = await Promise.all([
-      ActivityLog.find({ schoolId, actorType: "admin" })
-        .sort({ createdAt: -1 })
-        .limit(50),
-      ECUser.find({ schoolId }).select("name email"),
+    const pagination = getPagination(req.query, { defaultLimit: 250, maxLimit: 250 });
+    const filter = { schoolId, actorType: EC_ROLE };
+    const logQuery = ActivityLog.find(filter).sort({ createdAt: -1 });
+    if (pagination.enabled) {
+      logQuery.skip(pagination.skip).limit(pagination.limit);
+    } else {
+      logQuery.limit(250);
+    }
+
+    const [logs, total] = await Promise.all([
+      logQuery,
+      pagination.enabled ? ActivityLog.countDocuments(filter) : Promise.resolve(null),
     ]);
 
-    const adminById = new Map(admins.map((admin) => [admin._id.toString(), admin]));
-
-    return res.status(200).json(
-      logs.map((log) => {
-        const mapped = mapActivity(log);
-        const admin = log.actorType === "admin" ? adminById.get(mapped.actorId) : null;
-
-        return {
-          ...mapped,
-          actorName: admin?.name || null,
-          actorEmail: admin?.email || null,
-        };
-      })
+    const actorIds = Array.from(
+      new Set(logs.map((log) => log.actorId?.toString()).filter(Boolean))
     );
+    const actors = actorIds.length
+      ? await Student.find({ _id: { $in: actorIds } }).select(
+          "firstName lastName email studentId accountRole"
+        )
+      : [];
+    const actorById = new Map(actors.map((actor) => [actor._id.toString(), actor]));
+
+    const items = logs.map((log) => {
+      const mapped = mapActivity(log);
+      const actor = mapped.actorId ? actorById.get(mapped.actorId) : null;
+      const ecFirstName = mapped.actorFirstName || actor?.firstName || "";
+      const ecLastName = mapped.actorLastName || actor?.lastName || "";
+      const ecName =
+        mapped.actorName ||
+        `${ecFirstName} ${ecLastName}`.trim() ||
+        mapped.metadata?.ecName ||
+        mapped.metadata?.actorName ||
+        actor?.email ||
+        null;
+      const ecEmail = mapped.actorEmail || actor?.email || mapped.metadata?.email || null;
+      const ecStudentId =
+        mapped.actorStudentId || actor?.studentId || mapped.metadata?.studentId || null;
+
+      return {
+        _id: mapped._id,
+        actorType: mapped.actorType,
+        actorId: mapped.actorId,
+        action: mapped.action,
+        metadata: stripActorMetadata(mapped.metadata),
+        createdAt: mapped.createdAt,
+        updatedAt: mapped.updatedAt,
+        actor: {
+          id: mapped.actorId,
+          type: mapped.actorType,
+          name: ecName,
+          firstName: ecFirstName || null,
+          lastName: ecLastName || null,
+          email: ecEmail,
+          studentId: ecStudentId,
+          accountRole: actor?.accountRole || normalizeActorType(log.actorType),
+        },
+        actorName: ecName,
+        actorAccountRole: actor?.accountRole || normalizeActorType(log.actorType),
+      };
+    });
+
+    if (pagination.enabled) {
+      return res.status(200).json({
+        items,
+        pagination: buildPaginationMeta({ ...pagination, total }),
+      });
+    }
+
+    return res.status(200).json(items);
   } catch (error) {
-    return sendError(res, 500, error.message || "Failed to load admin activity");
+    return sendError(res, 500, error.message || "Failed to load EC activity");
   }
 };
 
-export const buildAdminElectionMonitorPayload = async ({ electionId, schoolId = null }) => {
-  const election = await Election.findById(electionId);
+export const buildAdminElectionMonitorPayload = async ({
+  electionId,
+  schoolId = null,
+  forceRefresh = false,
+} = {}) => {
+  const cacheKey = `monitor:election:${electionId}:${schoolId || "any"}`;
+  if (!forceRefresh) {
+    const cachedPayload = await getCacheJson(cacheKey);
+    if (cachedPayload) {
+      return cachedPayload;
+    }
+  }
 
-  if (!election) {
+  const storedElection = await Election.findById(electionId);
+
+  if (!storedElection) {
     const error = new Error("Election not found");
     error.statusCode = 404;
     throw error;
   }
 
-  if (schoolId && election.schoolId?.toString() !== schoolId?.toString()) {
+  if (schoolId && storedElection.schoolId?.toString() !== schoolId?.toString()) {
     const error = new Error("You are not allowed to access this school");
     error.statusCode = 403;
     throw error;
   }
 
-    const [aspirants, voters, students, admins] = await Promise.all([
-  Aspirant.find({ electionId: election._id, schoolId: election.schoolId }).sort({
+  const snapshot =
+    (await getElectionAnalyticsSnapshot(storedElection._id)) ||
+    (await refreshElectionAnalyticsSnapshot(storedElection));
+  const election = await attachStoredVotes(storedElection);
+
+  const [aspirants, voters, students, admins] = await Promise.all([
+    Aspirant.find({ electionId: election._id, schoolId: election.schoolId }).sort({
       electoralCategory: 1,
       voteCount: -1,
       name: 1,
@@ -574,20 +636,20 @@ export const buildAdminElectionMonitorPayload = async ({ electionId, schoolId = 
     Voter.find({ electionId: election._id, schoolId: election.schoolId }).select(
       "studentId faculty"
     ),
-    Student.find({ schoolId: election.schoolId }).select("_id studentId department"),
-    ECUser.find({ schoolId: election.schoolId }).select("_id"),
+    Student.find({ schoolId: election.schoolId }).select("_id studentId department accountRole"),
+    Student.find({ schoolId: election.schoolId, accountRole: ecRoleQuery() }).select("_id"),
   ]);
 
   const uniqueStudentVoterIds = Array.from(
     new Set(
       (election.votes || [])
-        .map((vote) => vote.studentId?.toString())
+        .map((vote) => getVoteStudentIdentity(vote)?.toString())
         .filter(Boolean)
     )
   );
-  const uniqueParticipantIds = new Set(
+  const uniqueAccreditedVoterIds = new Set(
     (election.votes || [])
-      .map((vote) => getVoteParticipantKey(vote))
+      .map((vote) => getAccreditedVoterKey(vote))
       .filter(Boolean)
   );
   const studentById = new Map(students.map((student) => [student._id.toString(), student]));
@@ -596,38 +658,53 @@ export const buildAdminElectionMonitorPayload = async ({ electionId, schoolId = 
   );
 
   const registeredVoters =
-    (voters.length > 0 ? voters.length : election.eligibleVoters?.length || students.length) +
-    admins.length;
-  const accreditedVoters = uniqueParticipantIds.size;
-  const votesCast = election.votes?.length || 0;
+    snapshot?.registeredVoters ||
+    (voters.length > 0 ? voters.length : election.eligibleVoters?.length || students.length + admins.length);
+  const accreditedVoters = uniqueAccreditedVoterIds.size;
+  const ballotsCast = election.votes?.length || 0;
+  const votesCast = accreditedVoters;
   const turnoutPercentage =
-    registeredVoters > 0
+    (registeredVoters > 0
       ? Number(((accreditedVoters / registeredVoters) * 100).toFixed(1))
-      : 0;
-  const turnoutTrend = buildTurnoutTrend(election);
+      : 0);
+  const turnoutTrend = snapshot?.turnoutTrend?.length
+    ? snapshot.turnoutTrend
+    : buildTurnoutTrend(election);
 
-  return {
+  const payload = {
     _id: election._id.toString(),
     title: election.title,
     updatedAt: new Date().toISOString(),
     lastUpdatedAt: new Date().toISOString(),
     registeredVoters,
     votesCast,
+    totalVotes: ballotsCast,
+    ballotsCast,
+    totalBallotsCast: ballotsCast,
     positionsCount: election.categories?.length || 0,
     turnoutPercentage,
     turnoutGrowthPercentage: buildTurnoutGrowthPercentage(turnoutTrend),
     accreditedVoters,
     timeRemaining: formatTimeRemaining(election.endTime),
-    categoryLeaders: buildCategoryLeaders({ election, aspirants }),
+    categoryLeaders: snapshot?.categoryLeaders?.length
+      ? snapshot.categoryLeaders
+      : buildCategoryLeaders({ election, aspirants }),
     turnoutTrend,
-    voteDistribution: buildVoteDistribution(election),
-    facultyVoteStatus: buildFacultyVoteStatus({
-      registeredVoters: voters,
-      uniqueStudentVoterIds,
-      studentById,
-      registryFacultyByStudentId,
-    }),
+    voteDistribution: snapshot?.voteDistribution?.length
+      ? snapshot.voteDistribution
+      : buildVoteDistribution(election),
+    facultyVoteStatus: snapshot?.facultyVoteStatus?.length
+      ? snapshot.facultyVoteStatus
+      : buildFacultyVoteStatus({
+          registeredVoters: voters,
+          uniqueStudentVoterIds,
+          studentById,
+          registryFacultyByStudentId,
+        }),
   };
+
+  await setCacheJson(cacheKey, payload, Number(process.env.MONITOR_CACHE_TTL_SECONDS || 3));
+  return payload;
 };
 
 registerMonitorPayloadBuilder(buildAdminElectionMonitorPayload);

@@ -1,12 +1,28 @@
 import School from "../models/school.js";
+import SchoolAdmin from "../models/SchoolAdmin.js";
 import { sendError } from "../utils/apiResponse.js";
+import {
+  isValidEmailDomain,
+  normalizeAllowedEmailDomains,
+} from "../utils/emailDomains.js";
 import { resolveLogoUrl } from "../utils/logoUrl.js";
+import {
+  isStrongPassword,
+  isValidEmail,
+  normalizeEmail,
+  strongPasswordMessage,
+} from "../utils/security.js";
+export { promoteSchoolAdmins } from "./authController.js";
 import {
   calculateSubscriptionExpiry,
   getPlanConfig,
   getSubscriptionTermConfig,
+  subscriptionTerms,
   syncSchoolSubscriptionState,
 } from "../utils/plans.js";
+
+const isSupportedSubscriptionTerm = (term) =>
+  Boolean(subscriptionTerms[String(term || "").trim()]);
 
 export const createSchool = async (req, res) => {
   const {
@@ -15,14 +31,20 @@ export const createSchool = async (req, res) => {
     shortName,
     logoUrl,
     email,
+    allowedEmailDomains,
     plan,
     subscriptionTerm,
+    admin,
     faculties = [],
   } = req.body;
 
   try {
     const effectivePlan = plan || "free";
-    const effectiveTerm = subscriptionTerm || "1_month";
+    const effectiveTerm = subscriptionTerm || "4_months";
+    if (!isSupportedSubscriptionTerm(effectiveTerm)) {
+      return sendError(res, 400, "subscriptionTerm must be one_off_election, 4_months, or 1_year");
+    }
+
     const subscriptionStartedAt = new Date();
     const subscriptionExpiresAt = calculateSubscriptionExpiry({
       subscriptionTerm: effectiveTerm,
@@ -30,6 +52,49 @@ export const createSchool = async (req, res) => {
     });
     const selectedPlan = getPlanConfig(effectivePlan);
     const selectedTerm = getSubscriptionTermConfig(effectiveTerm);
+    const normalizedAdminEmail = normalizeEmail(admin?.email);
+    const normalizedAllowedDomains = normalizeAllowedEmailDomains(allowedEmailDomains);
+
+    if (!isValidEmail(email)) {
+      return sendError(res, 400, "email must be a valid email address");
+    }
+
+    if (normalizedAllowedDomains.length === 0) {
+      return sendError(res, 400, "allowedEmailDomains must include at least one email domain");
+    }
+
+    const invalidDomain = normalizedAllowedDomains.find(
+      (domain) => !isValidEmailDomain(domain)
+    );
+    if (invalidDomain) {
+      return sendError(res, 400, `Invalid allowed email domain: ${invalidDomain}`);
+    }
+
+    if (admin) {
+      if (
+        !admin.firstName ||
+        !admin.lastName ||
+        !isValidEmail(normalizedAdminEmail) ||
+        !admin.password
+      ) {
+        return sendError(
+          res,
+          400,
+          "admin.firstName, admin.lastName, a valid admin.email, and admin.password are required"
+        );
+      }
+
+      if (!isStrongPassword(admin.password)) {
+        return sendError(res, 400, strongPasswordMessage);
+      }
+
+      const existingSchoolAdmin = await SchoolAdmin.findOne({
+        email: normalizedAdminEmail,
+      }).select("_id");
+      if (existingSchoolAdmin) {
+        return sendError(res, 409, "School admin email already exists");
+      }
+    }
 
     const school = await School.create({
       name,
@@ -37,6 +102,7 @@ export const createSchool = async (req, res) => {
       shortName: shortName || "",
       logoUrl: logoUrl || "",
       email,
+      allowedEmailDomains: normalizedAllowedDomains,
       plan: effectivePlan,
       subscriptionTerm: effectiveTerm,
       subscriptionStartedAt,
@@ -44,10 +110,44 @@ export const createSchool = async (req, res) => {
       subscriptionActive: true,
       faculties,
     });
+    let schoolAdmin = null;
+    if (admin) {
+      try {
+        schoolAdmin = await SchoolAdmin.create({
+          schoolId: school._id,
+          firstName: String(admin.firstName).trim(),
+          lastName: String(admin.lastName).trim(),
+          email: normalizedAdminEmail,
+          password: admin.password,
+        });
+      } catch (error) {
+        if (error.code === 11000) {
+          const duplicateSchoolId = Boolean(error.keyPattern?.schoolId);
+          return sendError(
+            res,
+            409,
+            duplicateSchoolId
+              ? "This school already has a school admin"
+              : "School admin email already exists"
+          );
+        }
+        throw error;
+      }
+    }
 
     res.status(201).json({
       message: "School created",
       schoolId: school._id,
+      allowedEmailDomains: school.allowedEmailDomains,
+      schoolAdmin: schoolAdmin
+        ? {
+            _id: schoolAdmin._id.toString(),
+            firstName: schoolAdmin.firstName,
+            lastName: schoolAdmin.lastName,
+            email: schoolAdmin.email,
+            role: schoolAdmin.role,
+          }
+        : null,
       subscription: {
         planName: selectedPlan.name,
         studentRange: selectedPlan.studentRange,
@@ -100,7 +200,7 @@ export const updateSchoolSubscription = async (req, res) => {
       return sendError(res, 404, "School not found");
     }
 
-    if (req.schoolId?.toString() !== schoolId) {
+    if (req.schoolAdmin?.schoolId?.toString() !== schoolId) {
       return sendError(res, 403, "You are not allowed to update this school");
     }
 
@@ -113,6 +213,9 @@ export const updateSchoolSubscription = async (req, res) => {
     }
 
     school.plan = plan || school.plan;
+    if (subscriptionTerm && !isSupportedSubscriptionTerm(subscriptionTerm)) {
+      return sendError(res, 400, "subscriptionTerm must be one_off_election, 4_months, or 1_year");
+    }
     school.subscriptionTerm = subscriptionTerm || school.subscriptionTerm;
     school.subscriptionStartedAt = startedAt;
     school.subscriptionExpiresAt = calculateSubscriptionExpiry({
@@ -147,7 +250,9 @@ export const updateSchoolSubscription = async (req, res) => {
 
 export const getAllSchools = async (req, res) => {
   try {
-    const schools = await School.find({}).select("fullName shortName logoUrl name");
+    const schools = await School.find({}).select(
+      "fullName shortName logoUrl name allowedEmailDomains"
+    );
 
     return res.status(200).json(
       schools.map((school) => ({
@@ -155,6 +260,7 @@ export const getAllSchools = async (req, res) => {
         fullName: school.fullName || school.name,
         shortName: school.shortName || "",
         logoUrl: resolveLogoUrl(req, school.logoUrl),
+        allowedEmailDomains: school.allowedEmailDomains || [],
       }))
     );
   } catch (error) {

@@ -1,10 +1,13 @@
 import { Server as SocketIOServer } from "socket.io";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import { EC_ROLE, isEcRole } from "./ecRole.js";
+import { createRedisClient, isRedisUrlConfigured } from "./redisClient.js";
 
 let io = null;
 let monitorPayloadBuilder = null;
 let studentElectionPayloadBuilder = null;
+let socketRedisAdapterEnabled = false;
 const isSocketDebugEnabled = () => process.env.SOCKET_DEBUG === "true";
 const socketDebug = (...args) => {
   if (isSocketDebugEnabled()) {
@@ -26,13 +29,15 @@ const getTokenFromSocket = (socket) => {
   return "";
 };
 
-const getAdminElectionRoom = (electionId) => `admin:election:${electionId}`;
+const getEcElectionRoom = (electionId) => `ec:election:${electionId}`;
 const getStudentElectionRoom = (electionId) => `student:election:${electionId}`;
 const getStudentNotificationRoom = (studentId) => `student:notifications:${studentId}`;
 const getStudentUserRoom = (studentId) => `student:user:${studentId}`;
-const getAdminNotificationRoom = (adminId) => `admin:notifications:${adminId}`;
-const getAdminSchoolRoom = (schoolId) => `admin:school:${schoolId}`;
+const getEcNotificationRoom = (ecUserId) => `ec:notifications:${ecUserId}`;
+const getEcSchoolRoom = (schoolId) => `ec:school:${schoolId}`;
 const isDatabaseReady = () => mongoose.connection.readyState === 1;
+const getSocketStudentId = (socket) =>
+  socket.data.user.studentId || (isEcRole(socket.data.user.role) ? socket.data.user.userId : null);
 
 export const registerMonitorPayloadBuilder = (builder) => {
   monitorPayloadBuilder = builder;
@@ -45,10 +50,43 @@ export const registerStudentElectionPayloadBuilder = (builder) => {
 export const getSocketHealth = () => ({
   databaseReady: isDatabaseReady(),
   socketDebugEnabled: isSocketDebugEnabled(),
-  adminMonitorBuilderRegistered: Boolean(monitorPayloadBuilder),
+  ecMonitorBuilderRegistered: Boolean(monitorPayloadBuilder),
   studentElectionBuilderRegistered: Boolean(studentElectionPayloadBuilder),
   socketServerAttached: Boolean(io),
+  socketConnectionCount: io?.engine?.clientsCount || 0,
+  redisAdapterConfigured: isRedisUrlConfigured(),
+  redisAdapterEnabled: socketRedisAdapterEnabled,
 });
+
+const attachRedisSocketAdapter = async (socketServer) => {
+  if (!isRedisUrlConfigured()) {
+    return;
+  }
+
+  try {
+    const [{ createAdapter }, pubClient] = await Promise.all([
+      import("@socket.io/redis-adapter"),
+      createRedisClient(),
+    ]);
+
+    if (!pubClient) {
+      return;
+    }
+
+    const subClient = pubClient.duplicate();
+    subClient.on("error", (error) => {
+      console.error("Redis socket adapter subscriber error:", error.message);
+    });
+    await subClient.connect();
+
+    socketServer.adapter(createAdapter(pubClient, subClient));
+    socketRedisAdapterEnabled = true;
+    console.log("Socket.IO Redis adapter enabled");
+  } catch (error) {
+    socketRedisAdapterEnabled = false;
+    console.warn("Socket.IO Redis adapter unavailable:", error.message);
+  }
+};
 
 export const attachLiveMonitorSocketServer = (httpServer) => {
   io = new SocketIOServer(httpServer, {
@@ -56,6 +94,10 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
       origin: true,
       credentials: true,
     },
+  });
+  attachRedisSocketAdapter(io).catch((error) => {
+    socketRedisAdapterEnabled = false;
+    console.warn("Socket.IO Redis adapter setup failed:", error.message);
   });
 
   io.use((socket, next) => {
@@ -84,44 +126,48 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
 
   io.on("connection", (socket) => {
     socketDebug("connected", { socketId: socket.id, role: socket.data.user.role });
-    if (socket.data.user.role === "student" && socket.data.user.studentId) {
-      socket.join(getStudentNotificationRoom(socket.data.user.studentId));
-      socket.join(getStudentUserRoom(socket.data.user.studentId));
+    const socketStudentId = getSocketStudentId(socket);
+    if (socketStudentId) {
+      socket.join(getStudentNotificationRoom(socketStudentId));
+      socket.join(getStudentUserRoom(socketStudentId));
     }
-    if (socket.data.user.role === "admin" && socket.data.user.userId) {
-      socket.join(getAdminNotificationRoom(socket.data.user.userId));
+    if (isEcRole(socket.data.user.role) && socket.data.user.userId) {
+      socket.join(getEcNotificationRoom(socket.data.user.userId));
       if (socket.data.user.schoolId) {
-        socket.join(getAdminSchoolRoom(socket.data.user.schoolId));
+        socket.join(getEcSchoolRoom(socket.data.user.schoolId));
       }
     }
 
-    socket.on("admin:monitor:join", async ({ electionId } = {}) => {
-      if (socket.data.user.role !== "admin") {
-        socket.emit("admin:monitor:error", {
-          message: "Only admins can subscribe to this channel",
+    const handleEcMonitorJoin = async ({ electionId } = {}) => {
+      if (!isEcRole(socket.data.user.role)) {
+        const errorPayload = {
+          message: "Only EC members can subscribe to this channel",
           statusCode: 403,
-        });
+        };
+        socket.emit("ec:monitor:error", errorPayload);
         return;
       }
 
       const normalizedElectionId = String(electionId || "").trim();
       if (!normalizedElectionId || !monitorPayloadBuilder) {
-        socket.emit("admin:monitor:error", {
+        const errorPayload = {
           message: "electionId is required",
-        });
+        };
+        socket.emit("ec:monitor:error", errorPayload);
         return;
       }
 
       try {
-        socketDebug("admin-join-received", {
+        socketDebug("ec-join-received", {
           socketId: socket.id,
           electionId: normalizedElectionId,
         });
         if (!isDatabaseReady()) {
-          socket.emit("admin:monitor:error", {
+          const errorPayload = {
             message: "Database is not ready yet",
             statusCode: 503,
-          });
+          };
+          socket.emit("ec:monitor:error", errorPayload);
           return;
         }
 
@@ -129,29 +175,35 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
           electionId: normalizedElectionId,
           schoolId: socket.data.user.schoolId,
         });
-        socket.join(getAdminElectionRoom(normalizedElectionId));
-        socketDebug("admin-joined-room", {
+        socket.join(getEcElectionRoom(normalizedElectionId));
+        socketDebug("ec-joined-room", {
           socketId: socket.id,
-          room: getAdminElectionRoom(normalizedElectionId),
+          room: getEcElectionRoom(normalizedElectionId),
         });
-        socket.emit("admin:monitor:update", payload);
+        socket.emit("ec:monitor:update", payload);
       } catch (error) {
-        socket.emit("admin:monitor:error", {
+        const errorPayload = {
           message: error.message || "Unable to subscribe to election monitor",
           statusCode: error.statusCode || 500,
-        });
+        };
+        socket.emit("ec:monitor:error", errorPayload);
       }
-    });
+    };
 
-    socket.on("admin:monitor:leave", ({ electionId } = {}) => {
+    socket.on("ec:monitor:join", handleEcMonitorJoin);
+
+    const handleEcMonitorLeave = ({ electionId } = {}) => {
       const normalizedElectionId = String(electionId || "").trim();
       if (normalizedElectionId) {
-        socket.leave(getAdminElectionRoom(normalizedElectionId));
+        socket.leave(getEcElectionRoom(normalizedElectionId));
       }
-    });
+    };
+
+    socket.on("ec:monitor:leave", handleEcMonitorLeave);
 
     socket.on("student:election:join", async ({ electionId } = {}) => {
-      if (socket.data.user.role !== "student") {
+      const subscriberStudentId = getSocketStudentId(socket);
+      if (!subscriberStudentId) {
         socket.emit("student:election:error", {
           message: "Only students can subscribe to this channel",
           statusCode: 403,
@@ -171,7 +223,7 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
         socketDebug("student-join-received", {
           socketId: socket.id,
           electionId: normalizedElectionId,
-          studentId: socket.data.user.studentId,
+          studentId: subscriberStudentId,
         });
         if (!isDatabaseReady()) {
           socket.emit("student:election:error", {
@@ -183,13 +235,13 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
 
         const payload = await studentElectionPayloadBuilder({
           electionId: normalizedElectionId,
-          studentId: socket.data.user.studentId,
+          studentId: subscriberStudentId,
         });
         socket.join(getStudentElectionRoom(normalizedElectionId));
         socketDebug("student-joined-room", {
           socketId: socket.id,
           room: getStudentElectionRoom(normalizedElectionId),
-          studentId: socket.data.user.studentId,
+          studentId: subscriberStudentId,
         });
         socket.emit("student:election:update", payload);
       } catch (error) {
@@ -226,12 +278,15 @@ export const emitElectionMonitorUpdate = async (electionId) => {
   }
 
   try {
-    const payload = await monitorPayloadBuilder({ electionId: normalizedElectionId });
-    socketDebug("admin-update-emitted", {
+    const payload = await monitorPayloadBuilder({
       electionId: normalizedElectionId,
-      room: getAdminElectionRoom(normalizedElectionId),
+      forceRefresh: true,
     });
-    io.to(getAdminElectionRoom(normalizedElectionId)).emit("admin:monitor:update", payload);
+    socketDebug("ec-update-emitted", {
+      electionId: normalizedElectionId,
+      room: getEcElectionRoom(normalizedElectionId),
+    });
+    io.to(getEcElectionRoom(normalizedElectionId)).emit("ec:monitor:update", payload);
 
     if (studentElectionPayloadBuilder) {
       const studentSockets = await io.in(getStudentElectionRoom(normalizedElectionId)).fetchSockets();
@@ -242,14 +297,19 @@ export const emitElectionMonitorUpdate = async (electionId) => {
       });
       await Promise.all(
         studentSockets.map(async (socket) => {
+          const studentId = getSocketStudentId(socket);
+          if (!studentId) {
+            return;
+          }
+
           const studentPayload = await studentElectionPayloadBuilder({
             electionId: normalizedElectionId,
-            studentId: socket.data.user.studentId,
+            studentId,
           });
           socketDebug("student-update-emitted", {
             electionId: normalizedElectionId,
             socketId: socket.id,
-            studentId: socket.data.user.studentId,
+            studentId,
           });
           socket.emit("student:election:update", studentPayload);
         })
@@ -280,9 +340,9 @@ export const emitNotification = async ({ recipientType, recipientId, payload }) 
     return true;
   }
 
-  if (recipientType === "admin") {
-    io.to(getAdminNotificationRoom(normalizedRecipientId)).emit(
-      "admin:notification:new",
+  if (recipientType === EC_ROLE) {
+    io.to(getEcNotificationRoom(normalizedRecipientId)).emit(
+      "ec:notification:new",
       payload
     );
     return true;
@@ -324,6 +384,6 @@ export const emitAdminSchoolEvent = async ({
     return false;
   }
 
-  io.to(getAdminSchoolRoom(String(schoolId))).emit(eventName, payload);
+  io.to(getEcSchoolRoom(String(schoolId))).emit(eventName, payload);
   return true;
 };

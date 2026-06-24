@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
-import ECUser from "../models/ECUser.js";
 import Student from "../models/Student.js";
 import dotenv from "dotenv";
+import { ecRoleQuery, isEcRole } from "../utils/ecRole.js";
 dotenv.config();
 
 export const protect = async (req, res, next) => {
@@ -15,19 +15,16 @@ export const protect = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.role && decoded.role !== "admin") {
+    if (decoded.role && !isEcRole(decoded.role)) {
       return res.status(401).json({ error: "Invalid token scope" });
     }
 
-    let ecUser = await ECUser.findById(decoded.userId).select("-password");
+    const ecUser = await Student.findOne({
+      _id: decoded.userId,
+      accountRole: ecRoleQuery(),
+    }).select("-password -votingPin");
     if (!ecUser) {
-      ecUser = await Student.findOne({
-        _id: decoded.userId,
-        accountRole: "admin",
-      }).select("-password -votingPin");
-    }
-    if (!ecUser) {
-      return res.status(401).json({ error: "Admin user not found" });
+      return res.status(401).json({ error: "EC user not found" });
     }
 
     req.ecUser = ecUser;

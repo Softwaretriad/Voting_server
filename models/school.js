@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import { normalizeAllowedEmailDomains } from "../utils/emailDomains.js";
+import { isValidEmail } from "../utils/security.js";
 
 const ProgrammeSchema = new mongoose.Schema(
   {
@@ -21,7 +23,22 @@ const SchoolSchema = new mongoose.Schema({
   fullName: { type: String, trim: true },
   shortName: { type: String, trim: true, default: "" },
   logoUrl: { type: String, trim: true, default: "" },
-  email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true,
+    lowercase: true,
+    validate: {
+      validator: isValidEmail,
+      message: "email must be a valid email address",
+    },
+  },
+  allowedEmailDomains: {
+    type: [String],
+    default: [],
+    set: normalizeAllowedEmailDomains,
+  },
   plan: {
     type: String,
     enum: ["free", "micro", "small", "medium", "large", "enterprise"],
@@ -31,12 +48,12 @@ const SchoolSchema = new mongoose.Schema({
   subscriptionStartedAt: { type: Date, default: Date.now },
   subscriptionTerm: {
     type: String,
-    enum: ["1_month", "one_off_election", "3_months", "6_months", "1_year"],
-    default: "1_month",
+    enum: ["one_off_election", "4_months", "1_year"],
+    default: "4_months",
   },
   subscriptionExpiresAt: { type: Date, default: null },
   oneOffElectionConsumed: { type: Boolean, default: false },
-  ecMembers: [{ type: mongoose.Schema.Types.ObjectId, ref: "ECUser" }],
+  ecMembers: [{ type: mongoose.Schema.Types.ObjectId, ref: "Student" }],
   faculties: { type: [FacultySchema], default: [] },
 });
 
@@ -44,6 +61,8 @@ SchoolSchema.pre("save", function preSave(next) {
   if (!this.fullName) {
     this.fullName = this.name;
   }
+
+  this.allowedEmailDomains = normalizeAllowedEmailDomains(this.allowedEmailDomains);
 
   next();
 });

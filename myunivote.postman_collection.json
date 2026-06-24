@@ -47,30 +47,30 @@
     },
     {
       "key": "studentEmail",
-      "value": "nailznfleek@gmail.com"
+      "value": "10920528@wiuc-ghana.edu.gh"
     },
     {
       "key": "studentPassword",
-      "value": "Password@123"
+      "value": "David123$"
     },
     {
       "key": "studentVotingPin",
       "value": "1234"
     }, 
     {
-      "key": "adminEmail",
-      "value": "10920528@wiuc-ghana.edu.gh"
+      "key": "ecEmail",
+      "value": "10420742@wiuc-ghana.edu.gh"
     },
     { 
-      "key": "adminPassword",
-      "value": "Admin@10920528"
+      "key": "ecPassword",
+      "value": "Nwanna123$"
     },
     {
-      "key": "adminToken",
+      "key": "ecToken",
       "value": ""
     },
     {
-      "key": "adminUserId",
+      "key": "ecUserId",
       "value": ""
     },
     {
@@ -82,24 +82,12 @@
       "value": ""
     },
     {
-      "key": "adminResetToken",
-      "value": ""
+      "key": "invitedEcEmail",
+      "value": "10420742@wiuc-ghana.edu.gh"
     },
     {
-      "key": "adminInviteToken",
-      "value": ""
-    },
-    {
-      "key": "invitedAdminEmail",
-      "value": "new-admin@example.com"
-    },
-    {
-      "key": "invitedAdminName",
-      "value": "New Admin"
-    },
-    {
-      "key": "invitedAdminPassword",
-      "value": "Admin@12345"
+      "key": "invitedEcStudentId",
+      "value": "10420742"
     },
     {
       "key": "uploadStudentId",
@@ -142,11 +130,11 @@
       "value": "Review@123"
     },
     {
-      "key": "reviewAdminEmail",
+      "key": "reviewEcEmail",
       "value": "review.admin@myunivote.demo"
     },
     {
-      "key": "reviewAdminPassword",
+      "key": "reviewEcPassword",
       "value": "Review@123"
     }
   ],
@@ -372,7 +360,7 @@
           }
         },
         {
-          "name": "Login Student",
+          "name": "Login User",
           "request": {
             "method": "POST",
             "header": [
@@ -412,7 +400,16 @@
                   "const data = pm.response.json();",
                   "if (data.accessToken) pm.collectionVariables.set('accessToken', data.accessToken);",
                   "if (data.refreshToken) pm.collectionVariables.set('refreshToken', data.refreshToken);",
-                  "if (data.user && data.user.id) pm.collectionVariables.set('userId', data.user.id);"
+                  "if (data.user && data.user.id) pm.collectionVariables.set('userId', data.user.id);",
+                  "if (data.user && data.user.schoolId) pm.collectionVariables.set('schoolId', data.user.schoolId);",
+                  "if (data.role === 'ec') {",
+                  "  const ecToken = data.token || data.accessToken || '';",
+                  "  if (ecToken) pm.collectionVariables.set('ecToken', ecToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set('ecUserId', data.user.id);",
+                  "} else {",
+                  "  pm.collectionVariables.unset('ecToken');",
+                  "  pm.collectionVariables.unset('ecUserId');",
+                  "}"
                 ]
               }
             }
@@ -539,7 +536,7 @@
           }
         },
         {
-          "name": "Logout Student",
+          "name": "Logout User",
           "request": {
             "method": "POST",
             "header": [
@@ -608,8 +605,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 201', function () {",
-                  "  pm.response.to.have.status(201);",
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
                   "});",
                   "const data = pm.response.json();",
                   "if (data.email) pm.collectionVariables.set('studentEmail', data.email);"
@@ -1325,256 +1322,16 @@
       ]
     },
     {
-      "name": "Admin Auth",
+      "name": "EC Insights",
       "item": [
         {
-          "name": "Login Admin",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/login",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "login"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status is 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "const data = pm.response.json();",
-                  "const adminToken = data.token || data.accessToken || '';",
-                  "if (adminToken) pm.collectionVariables.set('adminToken', adminToken);",
-                  "if (data.user && data.user.id) pm.collectionVariables.set('adminUserId', data.user.id);",
-                  "if (data.user && data.user.schoolId) pm.collectionVariables.set('schoolId', data.user.schoolId);",
-                  "pm.test('Response is admin login', function () {",
-                  "  pm.expect(data.role).to.eql('admin');",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Forgot Admin Password",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{adminEmail}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/auth/forgot-password",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "admin",
-                "auth",
-                "forgot-password"
-              ]
-            }
-          }
-        },
-        {
-          "name": "Verify Admin Reset OTP",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"otp\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/auth/verify-otp",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "admin",
-                "auth",
-                "verify-otp"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status is 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "const data = pm.response.json();",
-                  "if (data.resetToken) pm.collectionVariables.set('adminResetToken', data.resetToken);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Reset Admin Password",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"resetToken\": \"{{adminResetToken}}\",\n  \"newPassword\": \"Admin@10920528\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/auth/reset-password",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "admin",
-                "auth",
-                "reset-password"
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get Admin Invite Details",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/auth/invite?token={{adminInviteToken}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "admin",
-                "auth",
-                "invite"
-              ],
-              "query": [
-                {
-                  "key": "token",
-                  "value": "{{adminInviteToken}}"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Complete Admin Invite",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"token\": \"{{adminInviteToken}}\",\n  \"name\": \"{{invitedAdminName}}\",\n  \"password\": \"{{invitedAdminPassword}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/auth/complete-invite",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "admin",
-                "auth",
-                "complete-invite"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status is 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "const data = pm.response.json();",
-                  "if (data.email) pm.collectionVariables.set('adminEmail', data.email);",
-                  "pm.collectionVariables.set('adminPassword', pm.collectionVariables.get('invitedAdminPassword'));"
-                ]
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "Admin Insights",
-      "item": [
-        {
-          "name": "Get Admin Dashboard",
+          "name": "Get EC Dashboard",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -1582,12 +1339,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/dashboard/{{schoolId}}",
+              "raw": "{{baseUrl}}/ec/dashboard/{{schoolId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                  "ec",
                 "dashboard",
                 "{{schoolId}}"
               ]
@@ -1595,13 +1352,13 @@
           }
         },
         {
-          "name": "Get Admin Live Election Monitor",
+          "name": "Get EC Live Election Monitor",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -1609,12 +1366,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/monitor/elections/{{electionId}}",
+              "raw": "{{baseUrl}}/ec/monitor/elections/{{electionId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                  "ec",
                 "monitor",
                 "elections",
                 "{{electionId}}"
@@ -1645,13 +1402,13 @@
           }
         },
         {
-          "name": "Get Admin Notifications",
+          "name": "Get EC Notifications",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -1659,26 +1416,26 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/notifications/{{adminUserId}}",
+              "raw": "{{baseUrl}}/ec/notifications/{{ecUserId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "notifications",
-                "{{adminUserId}}"
+                "{{ecUserId}}"
               ]
             }
           }
         },
         {
-          "name": "Get Admin Notification Preferences",
+          "name": "Get EC Notification Preferences",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -1686,26 +1443,26 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/{{adminUserId}}/notification-preferences",
+              "raw": "{{baseUrl}}/ec/{{ecUserId}}/notification-preferences",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
-                "{{adminUserId}}",
+                "ec",
+                "{{ecUserId}}",
                 "notification-preferences"
               ]
             }
           }
         },
         {
-          "name": "Update Admin Notification Preferences",
+          "name": "Update EC Notification Preferences",
           "request": {
             "method": "PATCH",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Content-Type",
@@ -1721,26 +1478,26 @@
               "raw": "{\n  \"notificationsEnabled\": true,\n  \"electionAlertsEnabled\": true,\n  \"resultsEnabled\": true,\n  \"announcementsEnabled\": true,\n  \"voterActivityEnabled\": true\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/admin/{{adminUserId}}/notification-preferences",
+              "raw": "{{baseUrl}}/ec/{{ecUserId}}/notification-preferences",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
-                "{{adminUserId}}",
+                "ec",
+                "{{ecUserId}}",
                 "notification-preferences"
               ]
             }
           }
         },
         {
-          "name": "Get Admin Reports",
+          "name": "Get EC Reports",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -1748,12 +1505,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/reports/{{schoolId}}",
+              "raw": "{{baseUrl}}/ec/reports/{{schoolId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "reports",
                 "{{schoolId}}"
               ]
@@ -1761,13 +1518,13 @@
           }
         },
         {
-          "name": "Get Detailed Election Report",
+          "name": "Get Detailed EC Election Report",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -1775,12 +1532,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/reports/elections/{{electionId}}",
+              "raw": "{{baseUrl}}/ec/reports/elections/{{electionId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "reports",
                 "elections",
                 "{{electionId}}"
@@ -1789,13 +1546,13 @@
           }
         },
         {
-          "name": "Get Admin Activity",
+          "name": "Get EC Activity",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -1803,12 +1560,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/activity/{{schoolId}}",
+              "raw": "{{baseUrl}}/ec/activity/{{schoolId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "activity",
                 "{{schoolId}}"
               ]
@@ -1977,7 +1734,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Content-Type",
@@ -1990,7 +1747,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"plan\": \"free\",\n  \"subscriptionTerm\": \"1_month\",\n  \"subscriptionStartedAt\": \"2026-04-12T00:00:00.000Z\"\n}"
+              "raw": "{\n  \"plan\": \"free\",\n  \"subscriptionTerm\": \"4_months\",\n  \"subscriptionStartedAt\": \"2026-04-12T00:00:00.000Z\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/schools/subscription/{{schoolId}}",
@@ -2008,17 +1765,13 @@
       ]
     },
     {
-      "name": "Admin Invitations",
+      "name": "EC Promotions",
       "item": [
         {
-          "name": "Invite Admin Members",
+          "name": "Promote Student EC Members",
           "request": {
             "method": "POST",
             "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -2030,17 +1783,17 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"emails\": [\"{{invitedAdminEmail}}\"]\n}"
+              "raw": "{\n  \"members\": [\n    {\n      \"studentId\": \"{{invitedEcStudentId}}\",\n      \"email\": \"{{invitedEcEmail}}\"\n    }\n  ]\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/api/ec/invite-members",
+              "raw": "{{baseUrl}}/schools/{{schoolId}}/promote-ec-members",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "api",
-                "ec",
-                "invite-members"
+                "schools",
+                "{{schoolId}}",
+                "promote-ec-members"
               ]
             }
           },
@@ -2054,8 +1807,9 @@
                   "  pm.response.to.have.status(201);",
                   "});",
                   "const data = pm.response.json();",
-                  "if (Array.isArray(data.invited) && data.invited.length > 0 && data.invited[0].email) {",
-                  "  pm.collectionVariables.set('invitedAdminEmail', data.invited[0].email);",
+                  "if (Array.isArray(data.assigned) && data.assigned.length > 0) {",
+                  "  if (data.assigned[0].email) pm.collectionVariables.set('ecEmail', data.assigned[0].email);",
+                  "  if (data.assigned[0].ecUserId) pm.collectionVariables.set('ecUserId', data.assigned[0].ecUserId);",
                   "}"
                 ]
               }
@@ -2065,7 +1819,7 @@
       ]
     },
     {
-      "name": "Admin Elections",
+      "name": "EC Elections",
       "item": [
         {
           "name": "Get Draft Elections",
@@ -2074,7 +1828,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2082,12 +1836,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/elections?status=draft",
+              "raw": "{{baseUrl}}/ec/elections?status=draft",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections"
               ],
               "query": [
@@ -2117,13 +1871,13 @@
           ]
         },
         {
-          "name": "Get Admin Election By Id",
+          "name": "Get EC Election By Id",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2131,12 +1885,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/elections/{{electionId}}",
+              "raw": "{{baseUrl}}/ec/elections/{{electionId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections",
                 "{{electionId}}"
               ]
@@ -2144,13 +1898,13 @@
           }
         },
         {
-          "name": "Get Admin Election Categories",
+          "name": "Get EC Election Categories",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2158,12 +1912,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/elections/{{electionId}}/categories",
+              "raw": "{{baseUrl}}/ec/elections/{{electionId}}/categories",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections",
                 "{{electionId}}",
                 "categories"
@@ -2189,13 +1943,13 @@
           ]
         },
         {
-          "name": "Get Admin Election Aspirants",
+          "name": "Get EC Election Aspirants",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2203,12 +1957,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/elections/{{electionId}}/aspirants",
+              "raw": "{{baseUrl}}/ec/elections/{{electionId}}/aspirants",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections",
                 "{{electionId}}",
                 "aspirants"
@@ -2234,13 +1988,13 @@
           ]
         },
         {
-          "name": "Get Admin Election Aspirants By Category",
+          "name": "Get EC Election Aspirants By Category",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2248,12 +2002,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/elections/{{electionId}}/aspirants?categoryId={{categoryId}}",
+              "raw": "{{baseUrl}}/ec/elections/{{electionId}}/aspirants?categoryId={{categoryId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections",
                 "{{electionId}}",
                 "aspirants"
@@ -2274,7 +2028,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2282,12 +2036,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/elections?status=scheduled",
+              "raw": "{{baseUrl}}/ec/elections?status=scheduled",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections"
               ],
               "query": [
@@ -2323,7 +2077,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2351,12 +2105,12 @@
               ]
             },
             "url": {
-              "raw": "{{baseUrl}}/admin/uploads/images",
+              "raw": "{{baseUrl}}/ec/uploads/images",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "uploads",
                 "images"
               ]
@@ -2387,7 +2141,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2410,12 +2164,12 @@
               ]
             },
             "url": {
-              "raw": "{{baseUrl}}/admin/uploads/election-images",
+              "raw": "{{baseUrl}}/ec/uploads/election-images",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "uploads",
                 "election-images"
               ]
@@ -2445,7 +2199,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Content-Type",
@@ -2461,12 +2215,12 @@
               "raw": "{\n  \"title\": \"SRC General Election\",\n  \"imageUrl\": \"{{uploadedElectionImageUrl}}\",\n  \"startDate\": \"2026-05-01T09:00:00.000Z\",\n  \"endDate\": \"2026-05-02T17:00:00.000Z\",\n  \"categories\": [\"SRC President\", \"General Secretary\"],\n  \"status\": \"draft\",\n  \"voterListUrl\": \"students_registry.xlsx\",\n  \"aspirantListUrl\": \"aspirants_registry.xlsx\",\n  \"voters\": [\n    {\n      \"name\": \"Ama Mensah\",\n      \"studentId\": \"UG001\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\"\n    },\n    {\n      \"name\": \"Kojo Owusu\",\n      \"studentId\": \"UG002\",\n      \"programmeOfStudy\": \"BA Economics\",\n      \"level\": \"200\",\n      \"faculty\": \"Business\"\n    }\n  ],\n  \"aspirants\": [\n    {\n      \"name\": \"Esi Boateng\",\n      \"studentId\": \"UG010\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\",\n      \"electoralCategory\": \"SRC President\"\n    },\n    {\n      \"name\": \"Yaw Asare\",\n      \"studentId\": \"UG011\",\n      \"programmeOfStudy\": \"BA Political Science\",\n      \"level\": \"400\",\n      \"faculty\": \"Social Sciences\",\n      \"electoralCategory\": \"General Secretary\"\n    }\n  ]\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/admin/elections",
+              "raw": "{{baseUrl}}/ec/elections",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections"
               ]
             }
@@ -2494,7 +2248,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Content-Type",
@@ -2510,12 +2264,12 @@
               "raw": "{\n  \"title\": \"Updated SRC General Election\",\n  \"categories\": [\"SRC President\"]\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/admin/elections/{{electionId}}",
+              "raw": "{{baseUrl}}/ec/elections/{{electionId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections",
                 "{{electionId}}"
               ]
@@ -2529,7 +2283,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2537,12 +2291,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/elections/{{electionId}}/schedule",
+              "raw": "{{baseUrl}}/ec/elections/{{electionId}}/schedule",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections",
                 "{{electionId}}",
                 "schedule"
@@ -2557,7 +2311,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2565,12 +2319,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/elections/{{electionId}}",
+              "raw": "{{baseUrl}}/ec/elections/{{electionId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "elections",
                 "{{electionId}}"
               ]
@@ -2580,16 +2334,16 @@
       ]
     },
     {
-      "name": "Admin Voting",
+      "name": "EC Voting",
       "item": [
         {
-          "name": "Cast Admin Vote",
+          "name": "Cast EC Vote",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Content-Type",
@@ -2602,15 +2356,15 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"adminUserId\": \"{{adminUserId}}\",\n  \"electionId\": \"{{electionId}}\",\n  \"aspirantId\": \"{{aspirantId}}\"\n}"
+              "raw": "{\n  \"ecUserId\": \"{{ecUserId}}\",\n  \"electionId\": \"{{electionId}}\",\n  \"aspirantId\": \"{{aspirantId}}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/admin/votes/cast",
+              "raw": "{{baseUrl}}/ec/votes/cast",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "votes",
                 "cast"
               ]
@@ -2618,13 +2372,13 @@
           }
         },
         {
-          "name": "Get Admin Vote History",
+          "name": "Get EC Vote History",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
+                "value": "Bearer {{ecToken}}"
               },
               {
                 "key": "Accept",
@@ -2632,15 +2386,15 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/admin/votes/history/{{adminUserId}}",
+              "raw": "{{baseUrl}}/ec/votes/history/{{ecUserId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "admin",
+                "ec",
                 "votes",
                 "history",
-                "{{adminUserId}}"
+                "{{ecUserId}}"
               ]
             }
           }

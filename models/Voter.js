@@ -27,4 +27,7 @@ const VoterSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+VoterSchema.index({ electionId: 1, schoolId: 1, studentId: 1 });
+VoterSchema.index({ schoolId: 1, studentId: 1 });
+
 export default mongoose.model("Voter", VoterSchema);

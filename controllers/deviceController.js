@@ -1,9 +1,10 @@
 import PushDevice from "../models/PushDevice.js";
 import { sendError } from "../utils/apiResponse.js";
+import { normalizeRecipientType } from "../utils/ecRole.js";
 
 const mapDevice = (device) => ({
   id: device._id.toString(),
-  recipientType: device.recipientType,
+  recipientType: normalizeRecipientType(device.recipientType),
   recipientId: device.recipientId.toString(),
   schoolId: device.schoolId?.toString?.() || null,
   provider: device.provider,

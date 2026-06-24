@@ -5,9 +5,11 @@ import {
   getAllSchools,
   getFacultiesBySchool,
   getProgrammesByFaculty,
+  promoteSchoolAdmins as promoteSchoolEcMembers,
   updateSchoolSubscription,
 } from "../controllers/schoolController.js";
-import { protect } from "../middleware/authEC.js";
+import { protectSchoolAdmin } from "../middleware/authSchoolAdmin.js";
+import { validate, validators } from "../middleware/validate.js";
 
 const router = express.Router();
 
@@ -15,7 +17,13 @@ router.get("/", getAllSchools);
 router.get("/:schoolId/faculties", getFacultiesBySchool);
 router.get("/:schoolId/faculties/:facultyId/programmes", getProgrammesByFaculty);
 router.post("/register", createSchool);
+router.post(
+  "/:schoolId/promote-ec-members",
+  protectSchoolAdmin,
+  validate(validators.inviteAdminMembers),
+  promoteSchoolEcMembers
+);
 router.get("/subscription/:schoolId", checkSubscription);
-router.patch("/subscription/:schoolId", protect, updateSchoolSubscription);
+router.patch("/subscription/:schoolId", protectSchoolAdmin, updateSchoolSubscription);
 
 export default router;

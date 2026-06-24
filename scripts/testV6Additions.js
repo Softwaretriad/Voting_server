@@ -2,7 +2,6 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
-import ECUser from "../models/ECUser.js";
 import { hashSecret } from "../utils/security.js";
 
 dotenv.config();
@@ -55,22 +54,33 @@ const run = async () => {
     throw new Error("No school found for testing. Run the demo seed first.");
   }
 
-  let admin = await ECUser.findOne({ email: "admin-v6@example.com" });
-  if (!admin) {
-    admin = await ECUser.create({
-      name: "Admin V6",
-      email: "admin-v6@example.com",
-      password: "Password@123",
-      schoolId: school._id,
-      plan: "premium",
-    });
-
-    school.ecMembers.push(admin._id);
-    await school.save();
-  }
-
   const faculty = school.faculties[0];
   const programme = faculty.programmes[0];
+
+  let ecUser = await Student.findOne({
+    email: "ec-v6@example.com",
+    accountRole: "ec",
+  });
+  if (!ecUser) {
+    ecUser = await Student.create({
+      studentId: `EC-V6-${stamp}`,
+      firstName: "EC",
+      lastName: "V6",
+      gender: "male",
+      email: "ec-v6@example.com",
+      password: "Password@123",
+      schoolId: school._id,
+      phone: "+233240000100",
+      universityFullName: school.fullName || school.name,
+      department: faculty.name,
+      currentYearOfStudy: 4,
+      programOfStudy: programme.name,
+      votingPin: "1234",
+      accountRole: "ec",
+      isVerified: true,
+    });
+  }
+
   const studentEmail = `v6-student-${stamp}@example.com`;
   const studentPassword = "Password@123";
   const emailOtp = "123456";
@@ -146,25 +156,25 @@ const run = async () => {
   const loginAdminResult = await request("/auth/login", {
     method: "POST",
     body: JSON.stringify({
-      email: "admin-v6@example.com",
+      email: "ec-v6@example.com",
       password: "Password@123",
     }),
   });
-  assertStatus(loginAdminResult, 200, "POST /auth/login admin");
-  const adminToken = loginAdminResult.body.token;
+  assertStatus(loginAdminResult, 200, "POST /auth/login EC");
+  const ecToken = loginAdminResult.body.token;
 
-  const adminHeaders = {
-    Authorization: `Bearer ${adminToken}`,
+  const ecHeaders = {
+    Authorization: `Bearer ${ecToken}`,
   };
 
-  const dashboardResult = await request(`/admin/dashboard/${school._id}`, {
-    headers: adminHeaders,
+  const dashboardResult = await request(`/ec/dashboard/${school._id}`, {
+    headers: ecHeaders,
   });
-  assertStatus(dashboardResult, 200, "GET /admin/dashboard/:schoolId");
+  assertStatus(dashboardResult, 200, "GET /ec/dashboard/:schoolId");
 
-  const createElectionResult = await request("/admin/elections", {
+  const createElectionResult = await request("/ec/elections", {
     method: "POST",
-    headers: adminHeaders,
+    headers: ecHeaders,
     body: JSON.stringify({
       title: `Draft Election ${stamp}`,
       startDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -173,57 +183,57 @@ const run = async () => {
       status: "draft",
     }),
   });
-  assertStatus(createElectionResult, 201, "POST /admin/elections");
+  assertStatus(createElectionResult, 201, "POST /ec/elections");
   const electionId = createElectionResult.body._id;
 
-  const getDraftsResult = await request("/admin/elections?status=draft", {
-    headers: adminHeaders,
+  const getDraftsResult = await request("/ec/elections?status=draft", {
+    headers: ecHeaders,
   });
-  assertStatus(getDraftsResult, 200, "GET /admin/elections?status=draft");
+  assertStatus(getDraftsResult, 200, "GET /ec/elections?status=draft");
 
-  const updateElectionResult = await request(`/admin/elections/${electionId}`, {
+  const updateElectionResult = await request(`/ec/elections/${electionId}`, {
     method: "PUT",
-    headers: adminHeaders,
+    headers: ecHeaders,
     body: JSON.stringify({
       title: `Updated Draft Election ${stamp}`,
       categories: ["SRC President"],
     }),
   });
-  assertStatus(updateElectionResult, 200, "PUT /admin/elections/:electionId");
+  assertStatus(updateElectionResult, 200, "PUT /ec/elections/:electionId");
 
-  const scheduleElectionResult = await request(`/admin/elections/${electionId}/schedule`, {
+  const scheduleElectionResult = await request(`/ec/elections/${electionId}/schedule`, {
     method: "PATCH",
-    headers: adminHeaders,
+    headers: ecHeaders,
   });
-  assertStatus(scheduleElectionResult, 200, "PATCH /admin/elections/:electionId/schedule");
+  assertStatus(scheduleElectionResult, 200, "PATCH /ec/elections/:electionId/schedule");
 
-  const getScheduledResult = await request("/admin/elections?status=scheduled", {
-    headers: adminHeaders,
+  const getScheduledResult = await request("/ec/elections?status=scheduled", {
+    headers: ecHeaders,
   });
-  assertStatus(getScheduledResult, 200, "GET /admin/elections?status=scheduled");
+  assertStatus(getScheduledResult, 200, "GET /ec/elections?status=scheduled");
 
-  const reportsResult = await request(`/admin/reports/${school._id}`, {
-    headers: adminHeaders,
+  const reportsResult = await request(`/ec/reports/${school._id}`, {
+    headers: ecHeaders,
   });
-  assertStatus(reportsResult, 200, "GET /admin/reports/:schoolId");
+  assertStatus(reportsResult, 200, "GET /ec/reports/:schoolId");
 
-  const detailedReportResult = await request(`/admin/reports/elections/${electionId}`, {
-    headers: adminHeaders,
+  const detailedReportResult = await request(`/ec/reports/elections/${electionId}`, {
+    headers: ecHeaders,
   });
   assertStatus(
     detailedReportResult,
     200,
-    "GET /admin/reports/elections/:electionId"
+    "GET /ec/reports/elections/:electionId"
   );
 
-  const activityResult = await request(`/admin/activity/${school._id}`, {
-    headers: adminHeaders,
+  const activityResult = await request(`/ec/activity/${school._id}`, {
+    headers: ecHeaders,
   });
-  assertStatus(activityResult, 200, "GET /admin/activity/:schoolId");
+  assertStatus(activityResult, 200, "GET /ec/activity/:schoolId");
 
-  const createDeleteCandidate = await request("/admin/elections", {
+  const createDeleteCandidate = await request("/ec/elections", {
     method: "POST",
-    headers: adminHeaders,
+    headers: ecHeaders,
     body: JSON.stringify({
       title: `Delete Draft ${stamp}`,
       startDate: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
@@ -232,13 +242,13 @@ const run = async () => {
       status: "draft",
     }),
   });
-  assertStatus(createDeleteCandidate, 201, "POST /admin/elections second draft");
+  assertStatus(createDeleteCandidate, 201, "POST /ec/elections second draft");
 
-  const deleteResult = await request(`/admin/elections/${createDeleteCandidate.body._id}`, {
+  const deleteResult = await request(`/ec/elections/${createDeleteCandidate.body._id}`, {
     method: "DELETE",
-    headers: adminHeaders,
+    headers: ecHeaders,
   });
-  assertStatus(deleteResult, 200, "DELETE /admin/elections/:electionId");
+  assertStatus(deleteResult, 200, "DELETE /ec/elections/:electionId");
 
   console.log(
     JSON.stringify(
@@ -248,17 +258,17 @@ const run = async () => {
           "POST /votes/pin/forgot",
           "POST /votes/pin/verify-otp",
           "POST /votes/pin/reset",
-          "POST /auth/login admin",
-          "GET /admin/dashboard/:schoolId",
-          "GET /admin/elections?status=draft",
-          "POST /admin/elections",
-          "PUT /admin/elections/:electionId",
-          "PATCH /admin/elections/:electionId/schedule",
-          "GET /admin/elections?status=scheduled",
-          "GET /admin/reports/:schoolId",
-          "GET /admin/reports/elections/:electionId",
-          "GET /admin/activity/:schoolId",
-          "DELETE /admin/elections/:electionId",
+          "POST /auth/login EC",
+          "GET /ec/dashboard/:schoolId",
+          "GET /ec/elections?status=draft",
+          "POST /ec/elections",
+          "PUT /ec/elections/:electionId",
+          "PATCH /ec/elections/:electionId/schedule",
+          "GET /ec/elections?status=scheduled",
+          "GET /ec/reports/:schoolId",
+          "GET /ec/reports/elections/:electionId",
+          "GET /ec/activity/:schoolId",
+          "DELETE /ec/elections/:electionId",
         ],
       },
       null,

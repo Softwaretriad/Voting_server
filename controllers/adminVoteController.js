@@ -4,14 +4,22 @@ import { sendError } from "../utils/apiResponse.js";
 import { recordActivity } from "../utils/activityLog.js";
 import { isStudentRegistryIdInElectionVoters } from "../utils/electionEligibility.js";
 import { emitElectionMonitorUpdate } from "../utils/liveMonitorSocket.js";
-import { hasAdminVotedInCategory } from "../utils/voteState.js";
+import {
+  castStoredVote,
+  getStoredVotesForElection,
+  hasVoterVotedInCategory,
+  isDuplicateVoteError,
+} from "../utils/voteStore.js";
 import { maybeNotifyTurnoutMilestone } from "../utils/notificationService.js";
+import { refreshElectionAnalyticsSnapshot } from "../utils/electionAnalytics.js";
+import { EC_ROLE } from "../utils/ecRole.js";
 
 export const castAdminVote = async (req, res) => {
   try {
-    const { adminUserId, electionId, aspirantId } = req.body;
+    const { ecUserId, electionId, aspirantId } = req.body;
+    const resolvedEcUserId = String(ecUserId || "");
 
-    if (req.ecUser._id.toString() !== String(adminUserId || "")) {
+    if (req.ecUser._id.toString() !== resolvedEcUserId) {
       return sendError(res, 403, "You are not allowed to cast this vote");
     }
 
@@ -51,9 +59,9 @@ export const castAdminVote = async (req, res) => {
       return sendError(res, 404, "Aspirant not found");
     }
 
-    const hasVotedInCategory = hasAdminVotedInCategory({
+    const hasVotedInCategory = await hasVoterVotedInCategory({
       election,
-      adminId: req.ecUser._id,
+      voterId: req.ecUser._id,
       categoryId: aspirant.categoryId,
     });
 
@@ -65,26 +73,34 @@ export const castAdminVote = async (req, res) => {
       );
     }
 
-    aspirant.voteCount = (aspirant.voteCount || 0) + 1;
-    await aspirant.save();
-
-    election.votes.push({
-      candidate: `${aspirant.name} - ${aspirant.electoralCategory}`,
-      aspirantId: aspirant._id,
-      electionId: election._id,
-      categoryId: aspirant.categoryId,
-      adminId: req.ecUser._id,
-    });
-    await election.save();
+    try {
+      await castStoredVote({
+        election,
+        aspirant,
+        voterType: "ec",
+        voterId: req.ecUser._id,
+        schoolId: req.schoolId,
+      });
+    } catch (error) {
+      if (isDuplicateVoteError(error)) {
+        return sendError(
+          res,
+          409,
+          "You have already cast your vote for this category."
+        );
+      }
+      throw error;
+    }
 
     await recordActivity({
-      actorType: "admin",
+      actorType: EC_ROLE,
       actorId: req.ecUser._id,
       schoolId: req.schoolId,
-      action: "Admin Vote Cast",
+      action: "EC Vote Cast",
       metadata: { electionId: election._id, aspirantId: aspirant._id },
     });
     await maybeNotifyTurnoutMilestone(election);
+    await refreshElectionAnalyticsSnapshot(election);
     await emitElectionMonitorUpdate(election._id.toString());
 
     return res.status(201).json({});
@@ -95,20 +111,34 @@ export const castAdminVote = async (req, res) => {
 
 export const getAdminVoteHistory = async (req, res) => {
   try {
-    const { adminUserId } = req.params;
+    const { ecUserId } = req.params;
 
-    if (req.ecUser._id.toString() !== adminUserId) {
+    if (req.ecUser._id.toString() !== ecUserId) {
       return sendError(res, 403, "You are not allowed to access this vote history");
     }
 
-    const elections = await Election.find({
-      "votes.adminId": req.ecUser._id,
-      schoolId: req.schoolId,
-    }).sort({ startTime: -1, createdAt: -1 });
+    const elections = await Election.find({ schoolId: req.schoolId }).sort({
+      startTime: -1,
+      createdAt: -1,
+    });
+    const electionVotePairs = await Promise.all(
+      elections.map(async (election) => ({
+        election,
+        votes: await getStoredVotesForElection(election),
+      }))
+    );
 
     const groupedHistory = new Map();
 
-    elections.forEach((election) => {
+    electionVotePairs.forEach(({ election, votes }) => {
+      const hasVoted = votes.some((vote) => {
+        const ecVoteId = vote.ecUserId || vote.voterId;
+        return ecVoteId?.toString() === req.ecUser._id.toString();
+      });
+      if (!hasVoted) {
+        return;
+      }
+
       const startDate = election.startTime || election.endTime || election.createdAt;
       const year = startDate ? new Date(startDate).getUTCFullYear() : new Date().getUTCFullYear();
 
@@ -138,10 +168,10 @@ export const getAdminVoteHistory = async (req, res) => {
       }));
 
     return res.status(200).json({
-      adminUserId: req.ecUser._id.toString(),
+      ecUserId: req.ecUser._id.toString(),
       years,
     });
   } catch (error) {
-    return sendError(res, 500, error.message || "Failed to load admin vote history");
+    return sendError(res, 500, error.message || "Failed to load EC vote history");
   }
 };

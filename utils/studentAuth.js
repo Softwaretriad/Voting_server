@@ -1,10 +1,12 @@
 import jwt from "jsonwebtoken";
+import { EC_ROLE } from "./ecRole.js";
 
 const ACCESS_TOKEN_EXPIRY = process.env.JWT_EXPIRATION || "1h";
 const REFRESH_TOKEN_EXPIRY = process.env.JWT_REFRESH_EXPIRATION || "7d";
-const ADMIN_ACCESS_TOKEN_EXPIRY = process.env.JWT_ADMIN_EXPIRATION || "3h";
-const ADMIN_REFRESH_TOKEN_EXPIRY =
-  process.env.JWT_ADMIN_REFRESH_EXPIRATION || "7d";
+const EC_ACCESS_TOKEN_EXPIRY =
+  process.env.JWT_EC_EXPIRATION || process.env.JWT_ADMIN_EXPIRATION || "8h";
+const EC_REFRESH_TOKEN_EXPIRY =
+  process.env.JWT_EC_REFRESH_EXPIRATION || process.env.JWT_ADMIN_REFRESH_EXPIRATION || "14d";
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
 
 export const createOtp = () =>
@@ -26,23 +28,26 @@ export const signRefreshToken = (student) =>
     }
   );
 
-export const signAdminAccessToken = (admin) =>
+export const signEcAccessToken = (ecUser) =>
   jwt.sign(
-    { userId: admin._id, schoolId: admin.schoolId, role: "admin", type: "access" },
+    { userId: ecUser._id, schoolId: ecUser.schoolId, role: EC_ROLE, type: "access" },
     process.env.JWT_SECRET,
     {
-      expiresIn: ADMIN_ACCESS_TOKEN_EXPIRY,
+      expiresIn: EC_ACCESS_TOKEN_EXPIRY,
     }
   );
 
-export const signAdminRefreshToken = (admin) =>
+export const signEcRefreshToken = (ecUser) =>
   jwt.sign(
-    { userId: admin._id, schoolId: admin.schoolId, role: "admin", type: "refresh" },
+    { userId: ecUser._id, schoolId: ecUser.schoolId, role: EC_ROLE, type: "refresh" },
     process.env.JWT_SECRET,
     {
-      expiresIn: ADMIN_REFRESH_TOKEN_EXPIRY,
+      expiresIn: EC_REFRESH_TOKEN_EXPIRY,
     }
   );
+
+export const signAdminAccessToken = signEcAccessToken;
+export const signAdminRefreshToken = signEcRefreshToken;
 
 export const signResetToken = (student) =>
   jwt.sign(

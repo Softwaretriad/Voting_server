@@ -1,14 +1,14 @@
-import ECUser from "../models/ECUser.js";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
 import sendEmail from "../utils/sendEmail.js";
 import { sendError, sanitizeStudent } from "../utils/apiResponse.js";
+import { emailMatchesAllowedDomains } from "../utils/emailDomains.js";
 import { resolveLogoUrl } from "../utils/logoUrl.js";
 import {
   createOtp,
   getOtpExpiry,
-  signAdminAccessToken,
-  signAdminRefreshToken,
+  signEcAccessToken,
+  signEcRefreshToken,
   signAccessToken,
   signRefreshToken,
   verifyToken,
@@ -27,33 +27,29 @@ import {
   notifyAdmin,
   notifyStudent,
 } from "../utils/notificationService.js";
+import { EC_ROLE, ecRoleQuery, isEcAccountRole, isEcRole } from "../utils/ecRole.js";
 
-const getAdminFirstName = (account) => account?.firstName || account?.firstname || "";
+const getEcFirstName = (account) => account?.firstName || account?.firstname || "";
 
-const getAdminLastName = (account) => account?.lastName || "";
+const getEcLastName = (account) => account?.lastName || "";
 
-const getAdminDisplayName = (account) =>
-  [getAdminFirstName(account), getAdminLastName(account)].filter(Boolean).join(" ").trim();
+const getEcDisplayName = (account) =>
+  [getEcFirstName(account), getEcLastName(account)].filter(Boolean).join(" ").trim();
 
-const sanitizeAdmin = (admin) => ({
-  id: admin._id,
-  firstName: getAdminFirstName(admin),
-  lastName: getAdminLastName(admin),
-  name: getAdminDisplayName(admin),
-  email: admin.email,
-  schoolId: admin.schoolId,
+const sanitizeEcUser = (ecUser) => ({
+  id: ecUser._id,
+  firstName: getEcFirstName(ecUser),
+  lastName: getEcLastName(ecUser),
+  name: getEcDisplayName(ecUser),
+  email: ecUser.email,
+  schoolId: ecUser.schoolId,
 });
 
-const findAdminPrincipalById = async (userId) => {
-  const studentAdmin = await Student.findOne({
+const findEcPrincipalById = async (userId) => {
+  return Student.findOne({
     _id: userId,
-    accountRole: "admin",
+    accountRole: ecRoleQuery(),
   });
-  if (studentAdmin) {
-    return studentAdmin;
-  }
-
-  return ECUser.findById(userId);
 };
 
 const sendVerificationOtp = async (student) => {
@@ -109,19 +105,19 @@ const issueSession = async (req, student) => {
   };
 };
 
-const issueAdminSession = async (admin) => {
-  const accessToken = signAdminAccessToken(admin);
-  const refreshToken = signAdminRefreshToken(admin);
+const issueEcSession = async (ecUser) => {
+  const accessToken = signEcAccessToken(ecUser);
+  const refreshToken = signEcRefreshToken(ecUser);
 
-  admin.refreshToken = await hashSecret(refreshToken);
-  await admin.save();
+  ecUser.refreshToken = await hashSecret(refreshToken);
+  await ecUser.save();
 
   return {
     token: accessToken,
     refreshToken,
     accessToken,
-    role: "admin",
-    user: sanitizeAdmin(admin),
+    role: EC_ROLE,
+    user: sanitizeEcUser(ecUser),
   };
 };
 
@@ -129,6 +125,7 @@ const resolveSchoolSelection = async ({
   universityFullName,
   department,
   programOfStudy,
+  email,
 }) => {
   const school = await School.findOne({
     $or: [{ fullName: universityFullName }, { name: universityFullName }],
@@ -136,6 +133,16 @@ const resolveSchoolSelection = async ({
 
   if (!school) {
     return { error: "Selected university was not found in the school list" };
+  }
+
+  if (!Array.isArray(school.allowedEmailDomains) || school.allowedEmailDomains.length === 0) {
+    return { error: "Selected university has no allowed email domains configured" };
+  }
+
+  if (!emailMatchesAllowedDomains(email, school.allowedEmailDomains)) {
+    return {
+      error: `Email must use one of this university's allowed domains: ${school.allowedEmailDomains.join(", ")}`,
+    };
   }
 
   const faculty = school.faculties.find((item) => item.name === department);
@@ -194,19 +201,7 @@ export const registerStudent = async (req, res) => {
       return sendError(res, 400, "Voting PIN must be a 4-digit integer");
     }
 
-    const [existingStudent, existingAdmin] = await Promise.all([
-      Student.findOne({ email: normalizedEmail }),
-      ECUser.findOne({ email: normalizedEmail }),
-    ]);
-
-    if (existingAdmin) {
-      return sendError(
-        res,
-        400,
-        "This email address is already associated with an administrator account. Please use your student email to register."
-      );
-    }
-
+    const existingStudent = await Student.findOne({ email: normalizedEmail });
     if (existingStudent) {
       return sendError(res, 409, "Email already registered");
     }
@@ -215,6 +210,7 @@ export const registerStudent = async (req, res) => {
       universityFullName,
       department,
       programOfStudy,
+      email: normalizedEmail,
     });
 
     if (schoolError) {
@@ -365,10 +361,7 @@ export const loginStudent = async (req, res) => {
   try {
     const { email, password } = req.body;
     const normalizedEmail = normalizeEmail(email);
-    const [student, admin] = await Promise.all([
-      Student.findOne({ email: normalizedEmail }),
-      ECUser.findOne({ email: normalizedEmail }),
-    ]);
+    const student = await Student.findOne({ email: normalizedEmail });
 
     const studentPasswordMatches = student
       ? await student.matchPassword(password || "")
@@ -383,18 +376,21 @@ export const loginStudent = async (req, res) => {
         );
       }
 
-      if (student.accountRole === "admin") {
-        const session = await issueAdminSession(student);
+      if (isEcAccountRole(student.accountRole)) {
+        if (student.accountRole !== EC_ROLE) {
+          student.accountRole = EC_ROLE;
+        }
+        const session = await issueEcSession(student);
         await recordActivity({
-          actorType: "admin",
+          actorType: EC_ROLE,
           actorId: student._id,
           schoolId: student.schoolId,
-          action: "Admin Login Success",
+          action: "EC Login Success",
         });
         await notifyAdmin({
-          adminId: student._id,
+          ecUserId: student._id,
           schoolId: student.schoolId,
-          type: "admin_login_success",
+          type: "ec_login_success",
           title: "Login successful",
           message: "You signed in successfully.",
           priority: "low",
@@ -413,37 +409,6 @@ export const loginStudent = async (req, res) => {
         ...session,
         role: "student",
       });
-    }
-
-    const adminPasswordMatches = admin
-      ? await admin.matchPassword(password || "")
-      : false;
-
-    if (admin && admin.status === "pending") {
-      return sendError(
-        res,
-        403,
-        "Your admin invitation has not been completed yet. Please use the password setup link sent to your email."
-      );
-    }
-
-    if (adminPasswordMatches) {
-      const session = await issueAdminSession(admin);
-      await recordActivity({
-        actorType: "admin",
-        actorId: admin._id,
-        schoolId: admin.schoolId,
-        action: "Admin Login Success",
-      });
-      await notifyAdmin({
-        adminId: admin._id,
-        schoolId: admin.schoolId,
-        type: "admin_login_success",
-        title: "Login successful",
-        message: "You signed in successfully.",
-        priority: "low",
-      });
-      return res.status(200).json(session);
     }
 
     return sendError(res, 401, "Invalid email or password");
@@ -468,10 +433,10 @@ export const logoutStudent = async (req, res) => {
     const accessToken = authHeader.split(" ")[1];
     const decoded = verifyToken(accessToken);
 
-    if (decoded.role === "admin") {
-      const admin = await findAdminPrincipalById(decoded.userId);
+    if (isEcRole(decoded.role)) {
+      const admin = await findEcPrincipalById(decoded.userId);
       if (!admin) {
-        return sendError(res, 401, "Admin user not found");
+        return sendError(res, 401, "EC user not found");
       }
 
       if (!admin.refreshToken || !(await compareSecret(refreshToken, admin.refreshToken))) {
@@ -513,12 +478,12 @@ export const checkTokens = async (req, res) => {
 
     try {
       const decodedAccess = verifyToken(accessToken);
-      if (decodedAccess.role === "admin") {
-        const admin = await findAdminPrincipalById(decodedAccess.userId);
+      if (isEcRole(decodedAccess.role)) {
+        const admin = await findEcPrincipalById(decodedAccess.userId);
         if (admin && admin.refreshToken && (await compareSecret(refreshToken, admin.refreshToken))) {
           return res.status(200).json({
-            user: sanitizeAdmin(admin),
-            role: "admin",
+            user: sanitizeEcUser(admin),
+            role: EC_ROLE,
           });
         }
       } else {
@@ -545,13 +510,13 @@ export const checkTokens = async (req, res) => {
       return sendError(res, 401, "Invalid refresh token");
     }
 
-    if (decodedRefresh.role === "admin") {
-      const admin = await findAdminPrincipalById(decodedRefresh.userId);
+    if (isEcRole(decodedRefresh.role)) {
+      const admin = await findEcPrincipalById(decodedRefresh.userId);
       if (!admin || !admin.refreshToken || !(await compareSecret(refreshToken, admin.refreshToken))) {
         return sendError(res, 401, "Invalid refresh token");
       }
 
-      const newSession = await issueAdminSession(admin);
+      const newSession = await issueEcSession(admin);
       return res.status(200).json(newSession);
     }
 
@@ -594,13 +559,13 @@ export const refreshSession = async (req, res) => {
       return sendError(res, 401, "Invalid refresh token");
     }
 
-    if (decodedRefresh.role === "admin") {
-      const admin = await findAdminPrincipalById(decodedRefresh.userId);
+    if (isEcRole(decodedRefresh.role)) {
+      const admin = await findEcPrincipalById(decodedRefresh.userId);
       if (!admin || !admin.refreshToken || !(await compareSecret(refreshToken, admin.refreshToken))) {
         return sendError(res, 401, "Invalid refresh token");
       }
 
-      const newSession = await issueAdminSession(admin);
+      const newSession = await issueEcSession(admin);
       return res.status(200).json(newSession);
     }
 

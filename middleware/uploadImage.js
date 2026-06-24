@@ -1,4 +1,5 @@
 import fs from "fs";
+import crypto from "crypto";
 import path from "path";
 import multer from "multer";
 
@@ -8,10 +9,17 @@ export const uploadDirectory = path.join(
   "assets",
   "uploads"
 );
+export const uploadTempDirectory = path.join(
+  process.cwd(),
+  ".tmp",
+  "image-uploads"
+);
 
 fs.mkdirSync(uploadDirectory, { recursive: true });
+fs.mkdirSync(uploadTempDirectory, { recursive: true });
 
 const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const maxUploadBytes = Number(process.env.IMAGE_UPLOAD_MAX_BYTES) || 5 * 1024 * 1024;
 
 export const sanitizeUploadKey = (value) =>
   String(value || "")
@@ -22,14 +30,10 @@ export const sanitizeUploadKey = (value) =>
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    cb(null, uploadDirectory);
+    cb(null, uploadTempDirectory);
   },
-  filename: (req, file, cb) => {
-    const studentId = sanitizeUploadKey(req.body?.studentId);
-    const clientKey = sanitizeUploadKey(req.body?.clientKey);
-    const extension = path.extname(file.originalname || "").toLowerCase() || ".jpg";
-    const baseName = studentId !== "image" ? studentId : clientKey;
-    cb(null, `${baseName}-${Date.now()}${extension}`);
+  filename: (_req, _file, cb) => {
+    cb(null, `pending-${Date.now()}-${crypto.randomUUID()}.upload`);
   },
 });
 
@@ -45,7 +49,12 @@ const fileFilter = (_req, file, cb) => {
 export const uploadImage = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: maxUploadBytes,
+    files: 1,
+    fields: 10,
+    parts: 11,
+    fieldNameSize: 100,
+    fieldSize: 16 * 1024,
   },
   fileFilter,
 }).single("image");

@@ -2,6 +2,7 @@ import { sendError } from "../utils/apiResponse.js";
 import {
   isFourDigitPin,
   isStrongPassword,
+  isValidEmail,
   normalizeEmail,
   strongPasswordMessage,
 } from "../utils/security.js";
@@ -22,7 +23,7 @@ export const validators = {
       !body.firstName ||
       !body.lastName ||
       !["male", "female"].includes(body.gender) ||
-      !normalizeEmail(body.email) ||
+      !isValidEmail(body.email) ||
       !body.password ||
       !body.phone ||
       !body.universityFullName ||
@@ -41,17 +42,21 @@ export const validators = {
     return null;
   },
   loginStudent: (req) =>
-    normalizeEmail(req.body?.email) && req.body?.password
+    isValidEmail(req.body?.email) && req.body?.password
       ? null
-      : "email and password are required",
+      : "a valid email and password are required",
+  loginSchoolAdmin: (req) =>
+    isValidEmail(req.body?.email) && req.body?.password
+      ? null
+      : "a valid email and password are required",
   verifyEmailOtp: (req) =>
-    normalizeEmail(req.body?.email) && req.body?.otp
+    isValidEmail(req.body?.email) && req.body?.otp
       ? null
-      : "email and otp are required",
+      : "a valid email and otp are required",
   forgotPassword: (req) =>
-    normalizeEmail(req.body?.email) ? null : "email is required",
+    isValidEmail(req.body?.email) ? null : "a valid email is required",
   resendVerificationOtp: (req) =>
-    normalizeEmail(req.body?.email) ? null : "email is required",
+    isValidEmail(req.body?.email) ? null : "a valid email is required",
   resetPassword: (req) => {
     if (!req.body?.resetToken || !req.body?.newPassword) {
       return "resetToken and newPassword are required";
@@ -66,11 +71,11 @@ export const validators = {
   logoutSession: (req) =>
     req.body?.refreshToken ? null : "refreshToken is required",
   forgotVotingPin: (req) =>
-    normalizeEmail(req.body?.email) ? null : "email is required",
+    isValidEmail(req.body?.email) ? null : "a valid email is required",
   verifyVotingPinOtp: (req) =>
-    normalizeEmail(req.body?.email) && req.body?.otp
+    isValidEmail(req.body?.email) && req.body?.otp
       ? null
-      : "email and otp are required",
+      : "a valid email and otp are required",
   resetVotingPin: (req) =>
     req.body?.resetToken && isFourDigitPin(req.body?.newPin)
       ? null
@@ -86,33 +91,26 @@ export const validators = {
     isFourDigitPin(req.body?.votingPin)
       ? null
       : "studentId, electionId, aspirantId, and a valid 4-digit votingPin are required",
-  castAdminVote: (req) =>
-    req.body?.adminUserId && req.body?.electionId && req.body?.aspirantId
+  castEcVote: (req) =>
+    req.body?.ecUserId &&
+    req.body?.electionId &&
+    req.body?.aspirantId
       ? null
-      : "adminUserId, electionId, and aspirantId are required",
+      : "ecUserId, electionId, and aspirantId are required",
   inviteAdminMembers: (req) => {
-    const emails = req.body?.emails;
-    if (!Array.isArray(emails) || emails.length === 0) {
-      return "emails must be a non-empty array";
+    const members = req.body?.members;
+    if (!Array.isArray(members) || members.length === 0) {
+      return "members must be a non-empty array";
     }
 
-    const hasInvalidEmail = emails.some((email) => !normalizeEmail(email));
-    if (hasInvalidEmail) {
-      return "Each email in emails must be valid";
+    const hasInvalidMember = members.some(
+      (member) =>
+        !String(member?.studentId || "").trim() || !isValidEmail(member?.email)
+    );
+    if (hasInvalidMember) {
+      return "Each member must include a valid studentId and email";
     }
 
-    return null;
-  },
-  completeAdminInvite: (req) => {
-    if (!req.body?.token || !req.body?.name || !req.body?.password) {
-      return "token, name, and password are required";
-    }
-    if (!String(req.body.name).trim()) {
-      return "name cannot be empty";
-    }
-    if (!isStrongPassword(req.body.password)) {
-      return strongPasswordMessage;
-    }
     return null;
   },
   updateStudentProfile: (req) => {
@@ -144,7 +142,7 @@ export const validators = {
   deleteStudentAccount: (req) =>
     req.body?.password ? null : "password is required",
   changeStudentEmail: (req) =>
-    normalizeEmail(req.body?.email) ? null : "email must be a valid non-empty email address",
+    isValidEmail(req.body?.email) ? null : "email must be a valid email address",
   notificationPreferences: (req) => {
     const body = req.body || {};
     const allowedKeys = [
@@ -195,24 +193,31 @@ export const validators = {
 
     return null;
   },
-  adminElectionList: (req) =>
+  ecElectionList: (req) =>
     ["active", "scheduled", "draft", "closed"].includes(req.query?.status)
       ? null
       : "status query must be one of active, scheduled, draft, or closed",
-  adminElectionCreate: (req) => {
+  ecElectionCreate: (req) => {
     const body = req.body || {};
-    if (
-      !body.title ||
-      !body.startDate ||
-      !body.endDate ||
-      !Array.isArray(body.categories) ||
-      body.categories.length === 0 ||
-      !["draft", "scheduled"].includes(body.status)
-    ) {
-      return "title, startDate, endDate, categories, and status are required";
+    if (!body.title || !["draft", "scheduled"].includes(body.status)) {
+      return "title and status are required";
+    }
+
+    if (body.status === "scheduled") {
+      if (
+        !body.startDate ||
+        !body.endDate ||
+        !Array.isArray(body.categories) ||
+        body.categories.length === 0
+      ) {
+        return "title, startDate, endDate, categories, and status are required for scheduled elections";
+      }
     }
     if (body.imageUrl != null && typeof body.imageUrl !== "string") {
       return "imageUrl must be a string when provided";
+    }
+    if (body.categories != null && !Array.isArray(body.categories)) {
+      return "categories must be an array when provided";
     }
     if (body.voters != null && !Array.isArray(body.voters)) {
       return "voters must be an array when provided";
@@ -220,13 +225,13 @@ export const validators = {
     if (body.aspirants != null && !Array.isArray(body.aspirants)) {
       return "aspirants must be an array when provided";
     }
-    if (body.voters == null || body.voters.length === 0) {
-      return "voters is required and must be a non-empty array";
+    if (body.status === "scheduled" && (body.voters == null || body.voters.length === 0)) {
+      return "voters is required and must be a non-empty array for scheduled elections";
     }
-    if (body.aspirants == null || body.aspirants.length === 0) {
-      return "aspirants is required and must be a non-empty array";
+    if (body.status === "scheduled" && (body.aspirants == null || body.aspirants.length === 0)) {
+      return "aspirants is required and must be a non-empty array for scheduled elections";
     }
-    const invalidVoter = body.voters.find(
+    const invalidVoter = (body.voters || []).find(
       (voter) =>
         !voter?.name ||
         !voter?.studentId ||
@@ -237,7 +242,7 @@ export const validators = {
     if (invalidVoter) {
       return "Each voter must include name, studentId, programmeOfStudy, level, and faculty";
     }
-    const invalidAspirant = body.aspirants.find(
+    const invalidAspirant = (body.aspirants || []).find(
       (aspirant) =>
         !aspirant?.name ||
         !aspirant?.studentId ||

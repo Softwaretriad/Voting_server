@@ -11,11 +11,19 @@ import studentElectionRoutes from "./routes/studentElectionRoutes.js";
 import categoryRoutes from "./routes/categoryRoutes.js";
 import voteRoutes from "./routes/voteRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
-import adminRoutes from "./routes/adminRoutes.js";
+import ecOperationsRoutes from "./routes/ecOperationsRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
 import debugRoutes from "./routes/debugRoutes.js";
-import { corsMiddleware, securityHeaders } from "./middleware/security.js";
+import schoolAdminRoutes from "./routes/schoolAdminRoutes.js";
+import { connectMongo } from "./utils/mongoConnection.js";
+import {
+  corsMiddleware,
+  enforceHttps,
+  securityHeaders,
+} from "./middleware/security.js";
+import { enforceInputLimits } from "./middleware/inputLimits.js";
+import { requestMetrics } from "./middleware/requestMetrics.js";
 import { verifyEmailTransport } from "./utils/sendEmail.js";
 import {
   attachLiveMonitorSocketServer,
@@ -25,15 +33,41 @@ import {
   processElectionLifecycle,
   startElectionResultsProcessor,
 } from "./utils/electionResultsProcessor.js";
+import { getRedisHealth } from "./utils/redisClient.js";
+import { getOpsMetrics } from "./utils/opsMetrics.js";
 
 dotenv.config();
 
 const app = express();
 const httpServer = http.createServer(app);
 app.disable("x-powered-by");
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
+app.use(enforceHttps);
 app.use(securityHeaders);
 app.use(corsMiddleware);
-app.use(express.json());
+app.use(requestMetrics);
+app.use(
+  express.json({
+    limit: process.env.JSON_BODY_LIMIT || "25mb",
+    strict: true,
+  })
+);
+app.use((error, _req, res, next) => {
+  if (error?.type === "entity.too.large") {
+    return res.status(413).json({ error: "Request body is too large" });
+  }
+  if (error instanceof SyntaxError && error.status === 400 && "body" in error) {
+    return res.status(400).json({ error: "Request body must contain valid JSON" });
+  }
+  return next(error);
+});
+app.use(enforceInputLimits);
+app.use(
+  "/assets/logos",
+  express.static(path.join(process.cwd(), "public", "assets", "logos"), {
+    maxAge: "5m",
+  })
+);
 app.use(
   "/assets",
   express.static(path.join(process.cwd(), "public", "assets"), {
@@ -44,6 +78,7 @@ app.use(
 
 app.use("/api/ec", ecRoutes);
 app.use("/auth", authRoutes);
+app.use("/school-admin", schoolAdminRoutes);
 app.use("/schools", schoolRoutes);
 app.use("/students", studentRoutes);
 app.use("/elections", studentElectionRoutes);
@@ -52,13 +87,42 @@ app.use("/votes", voteRoutes);
 app.use("/notifications", notificationRoutes);
 app.use("/uploads", uploadRoutes);
 app.use("/devices", deviceRoutes);
-app.use("/admin", adminRoutes);
+app.use("/ec", ecOperationsRoutes);
 app.use("/debug", debugRoutes);
-app.get("/debug/socket-health", (_req, res) => {
+app.get("/debug/socket-health", async (_req, res) => {
   res.status(200).json({
     ...getSocketHealth(),
     mongoReadyState: mongoose.connection.readyState,
+    redis: await getRedisHealth(),
   });
+});
+const requireOpsMetricsToken = (req, res, next) => {
+  const expectedToken = String(process.env.OPS_METRICS_TOKEN || "").trim();
+  if (!expectedToken) {
+    next();
+    return;
+  }
+
+  const authHeader = String(req.headers.authorization || "");
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const providedToken = String(req.headers["x-ops-token"] || bearerToken || "").trim();
+
+  if (providedToken !== expectedToken) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  next();
+};
+app.get("/debug/ops-metrics", requireOpsMetricsToken, async (_req, res) => {
+  try {
+    res.status(200).json(await getOpsMetrics());
+  } catch (error) {
+    res.status(500).json({
+      error: "Unable to load operational metrics",
+      message: error.message,
+    });
+  }
 });
 
 app.use((req, res) => {
@@ -70,12 +134,16 @@ attachLiveMonitorSocketServer(httpServer);
 
 const startServer = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
+    await connectMongo();
     console.log("MongoDB connected");
 
     await verifyEmailTransport();
-    await processElectionLifecycle();
-    startElectionResultsProcessor();
+    if (process.env.ELECTION_LIFECYCLE_IN_API !== "false") {
+      await processElectionLifecycle();
+      startElectionResultsProcessor();
+    } else {
+      console.log("Election lifecycle processing is disabled in API process");
+    }
 
     httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   } catch (error) {

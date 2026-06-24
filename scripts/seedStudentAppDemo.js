@@ -22,7 +22,7 @@ const seed = async () => {
     logoUrl: "https://placehold.co/200x200/png",
     email: schoolEmail,
     plan: "free",
-    subscriptionTerm: "1_month",
+    subscriptionTerm: "4_months",
     subscriptionStartedAt: new Date(),
     faculties: [
       {
