@@ -8,7 +8,7 @@ REST API for the MyUniVote mobile platform. This backend supports the student ap
 - Public school, faculty, and programme lookup for onboarding flows
 - Student profile, active elections, schedule, statistics, notifications, voting, and results endpoints
 - Admin election management endpoints for listing, creating, updating, scheduling, and deleting elections
-- Uploaded voter registry rows stored in the `Voter` collection, while registered app users live in the `Student` collection
+- School-uploaded student records stored as real `Student` accounts, with election eligibility resolved by audience filters
 - Automatic election-close processing with live notifications and result availability through the API
 - Runtime smoke tests and a Postman collection for manual API verification
 
@@ -78,7 +78,7 @@ Admin membership:
 ## Data Model Notes
 
 - `Student` stores real student app accounts that register, verify email, log in, and vote
-- `Voter` stores uploaded election registry rows from the admin voter spreadsheet
+- `Student` records are the source of truth for election eligibility through `audience.scope`
 - `Aspirant` stores uploaded aspirant spreadsheet rows
 - The old legacy voter-auth flow has been removed from the active API surface
 
@@ -286,13 +286,13 @@ Relevant files:
 
 ## Migrations
 
-To migrate old legacy `candidates` data into the new `aspirants` collection and normalize legacy `voters` records:
+To migrate old legacy `candidates` data into the new `aspirants` collection:
 
 ```bash
 npm.cmd run migrate:legacy
 ```
 
-This migration also backfills `Voter` rows from any existing elections that already stored `eligibleVoters`.
+New EC election flows do not use voter-list uploads.
 
 ## Current Status
 

@@ -3,6 +3,7 @@ import {
   castStudentVote,
   forgotVotingPin,
   resetVotingPin,
+  setVotingPin,
   verifyVotingPin,
   verifyVotingPinResetOtp,
 } from "../controllers/studentVoteController.js";
@@ -29,6 +30,13 @@ router.post(
   verifyVotingPinResetOtp
 );
 router.post("/pin/reset", validate(validators.resetVotingPin), resetVotingPin);
+router.post(
+  "/pin/set",
+  createRateLimiter({ key: "set-voting-pin", windowMs: 15 * 60 * 1000, max: 5 }),
+  protectStudent,
+  validate(validators.setVotingPin),
+  setVotingPin
+);
 router.post(
   "/verify-pin",
   createRateLimiter({ key: "verify-voting-pin", windowMs: 15 * 60 * 1000, max: 10 }),

@@ -4,7 +4,7 @@ import { sendError } from "../utils/apiResponse.js";
 import { ecRoleQuery, isEcRole } from "../utils/ecRole.js";
 
 const STUDENT_AUTH_FIELDS =
-  "_id studentId firstName lastName gender email phone schoolId accountRole universityFullName department currentYearOfStudy programOfStudy isEmailVerified sessionVersion";
+  "_id studentId firstName lastName gender email phone schoolId accountRole universityFullName department currentYearOfStudy programOfStudy nationality isEmailVerified sessionVersion authProvider votingPin";
 const STUDENT_VOTE_AUTH_FIELDS = `${STUDENT_AUTH_FIELDS} votingPin votingPinAttempts votingPinLockedUntil`;
 
 const protectStudentWithFields = (fields) => async (req, res, next) => {

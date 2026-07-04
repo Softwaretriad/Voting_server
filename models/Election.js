@@ -22,19 +22,15 @@ const ElectionSchema = new mongoose.Schema({
     enum: ["pending", "draft", "scheduled", "active", "ended", "closed"],
     default: "draft",
   },
-  voterListUrl: { type: String, default: "" },
   aspirantListUrl: { type: String, default: "" },
-  eligibleVoters: {
-    type: [
-      {
-        name: { type: String, default: "" },
-        studentId: { type: String, default: "" },
-        programmeOfStudy: { type: String, default: "" },
-        level: { type: String, default: "" },
-        faculty: { type: String, default: "" },
-      },
-    ],
-    default: [],
+  audience: {
+    scope: {
+      type: String,
+      enum: ["all_students", "faculty", "nationality", "faculty_nationality"],
+      default: "all_students",
+    },
+    faculties: { type: [String], default: [] },
+    nationalities: { type: [String], default: [] },
   },
   categories: { type: [ElectionCategorySchema], default: [] },
   candidates: [
@@ -49,7 +45,7 @@ const ElectionSchema = new mongoose.Schema({
       aspirantId: { type: mongoose.Schema.Types.ObjectId, ref: "Aspirant" },
       electionId: { type: mongoose.Schema.Types.ObjectId, ref: "Election" },
       categoryId: { type: mongoose.Schema.Types.ObjectId },
-      voterId: { type: mongoose.Schema.Types.ObjectId, ref: "Voter" },
+      voterId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
       studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
       timestamp: { type: Date, default: Date.now },
     },

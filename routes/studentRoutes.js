@@ -10,6 +10,7 @@ import {
   getStudentNotificationPreferences,
   updateStudentNotificationPreferences,
 } from "../controllers/notificationController.js";
+import { setVotingPin } from "../controllers/studentVoteController.js";
 import { protectDeleteAccount } from "../middleware/authDeleteAccount.js";
 import { protectStudent } from "../middleware/authStudent.js";
 import { validate, validators } from "../middleware/validate.js";
@@ -30,6 +31,12 @@ router.patch(
   protectStudent,
   validate(validators.changeStudentEmail),
   changeStudentEmail
+);
+router.post(
+  "/:userId/voting-pin",
+  protectStudent,
+  validate(validators.setVotingPin),
+  setVotingPin
 );
 router.delete(
   "/:userId",

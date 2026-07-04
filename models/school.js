@@ -18,6 +18,31 @@ const FacultySchema = new mongoose.Schema(
   { _id: true }
 );
 
+const OfficialDocumentSchema = new mongoose.Schema(
+  {
+    storagePath: { type: String, required: true, trim: true },
+    originalName: { type: String, required: true, trim: true },
+    mimeType: {
+      type: String,
+      required: true,
+      enum: ["image/jpeg", "image/png", "image/webp"],
+    },
+    size: { type: Number, required: true, min: 1 },
+    sha256: {
+      type: String,
+      required: true,
+      match: /^[a-f0-9]{64}$/,
+    },
+    encryption: {
+      algorithm: { type: String, required: true, enum: ["aes-256-gcm"] },
+      iv: { type: String, required: true },
+      authTag: { type: String, required: true },
+    },
+    uploadedAt: { type: Date, default: Date.now },
+  },
+  { _id: true }
+);
+
 const SchoolSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   fullName: { type: String, trim: true },
@@ -53,6 +78,17 @@ const SchoolSchema = new mongoose.Schema({
   },
   subscriptionExpiresAt: { type: Date, default: null },
   oneOffElectionConsumed: { type: Boolean, default: false },
+  registrationStatus: {
+    type: String,
+    enum: ["pending", "approved", "rejected"],
+    default: "approved",
+    index: true,
+  },
+  registrationSubmittedAt: { type: Date, default: null },
+  registrationReviewedAt: { type: Date, default: null },
+  registrationReviewedBy: { type: String, trim: true, default: "" },
+  registrationRejectionReason: { type: String, trim: true, default: "" },
+  officialDocuments: { type: [OfficialDocumentSchema], default: [] },
   ecMembers: [{ type: mongoose.Schema.Types.ObjectId, ref: "Student" }],
   faculties: { type: [FacultySchema], default: [] },
 });

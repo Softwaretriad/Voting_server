@@ -3,8 +3,8 @@ import Election from "../models/Election.js";
 import Student from "../models/Student.js";
 import Vote from "../models/Vote.js";
 import VoteSideEffectJob from "../models/VoteSideEffectJob.js";
-import Voter from "../models/Voter.js";
 import { recordActivity } from "./activityLog.js";
+import { buildAudienceStudentQuery } from "./electionAudience.js";
 import { refreshElectionAnalyticsSnapshot } from "./electionAnalytics.js";
 import { emitAdminSchoolEvent, emitElectionMonitorUpdate } from "./liveMonitorSocket.js";
 import { maybeNotifyTurnoutMilestone, notifyStudent } from "./notificationService.js";
@@ -36,8 +36,10 @@ export const enqueueVoteSideEffects = async ({
   );
 
 const buildElectionLiveStatsPayload = async ({ electionId, schoolId }) => {
+  const election = await Election.findById(electionId).select("_id schoolId audience").lean();
+  const audienceQuery = election ? buildAudienceStudentQuery(election) : null;
   const [registeredVoters, voteStats] = await Promise.all([
-    Voter.countDocuments({ electionId, schoolId }),
+    audienceQuery ? Student.countDocuments(audienceQuery) : Promise.resolve(0),
     Vote.aggregate([
       { $match: { electionId } },
       {

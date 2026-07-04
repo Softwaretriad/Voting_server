@@ -8,7 +8,6 @@ import PushDevice from "../models/PushDevice.js";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
 import Vote from "../models/Vote.js";
-import Voter from "../models/Voter.js";
 import VoteSideEffectJob from "../models/VoteSideEffectJob.js";
 
 dotenv.config();
@@ -57,9 +56,6 @@ const run = async () => {
     elections: electionIds.length,
     students: studentIds.length,
     aspirants: await Aspirant.countDocuments({
-      $or: [{ schoolId: { $in: schoolIds } }, { electionId: { $in: electionIds } }],
-    }),
-    voters: await Voter.countDocuments({
       $or: [{ schoolId: { $in: schoolIds } }, { electionId: { $in: electionIds } }],
     }),
     votes: await Vote.countDocuments({
@@ -144,9 +140,6 @@ const run = async () => {
         { electionId: { $in: electionIds } },
         { voterId: { $in: studentIds } },
       ],
-    }),
-    Voter.deleteMany({
-      $or: [{ schoolId: { $in: schoolIds } }, { electionId: { $in: electionIds } }],
     }),
     Aspirant.deleteMany({
       $or: [{ schoolId: { $in: schoolIds } }, { electionId: { $in: electionIds } }],

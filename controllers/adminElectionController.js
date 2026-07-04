@@ -2,7 +2,6 @@ import Election from "../models/Election.js";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
 import Aspirant from "../models/Aspirant.js";
-import Voter from "../models/Voter.js";
 import { sendError } from "../utils/apiResponse.js";
 import { isStudentRegistryIdInElectionVoters } from "../utils/electionEligibility.js";
 import { recordActivity } from "../utils/activityLog.js";
@@ -12,7 +11,6 @@ import { getPlanConfig, syncSchoolSubscriptionState } from "../utils/plans.js";
 import {
   getEligibleStudentObjectIdsForElection,
   notifyEligibleStudentsForElection,
-  notifyRemovedStudentsFromElection,
   notifySchoolAdmins,
 } from "../utils/notificationService.js";
 import {
@@ -22,6 +20,11 @@ import {
 import { getStoredVotesForElection } from "../utils/voteStore.js";
 import { buildPaginationMeta, getPagination } from "../utils/pagination.js";
 import { EC_ROLE } from "../utils/ecRole.js";
+import {
+  buildAudienceStudentQuery,
+  normalizeElectionAudience,
+  validateElectionAudience,
+} from "../utils/electionAudience.js";
 
 const allowedStatuses = new Set(["active", "scheduled", "draft", "closed"]);
 const MIN_ELECTION_START_DELAY_MS = 24 * 60 * 60 * 1000;
@@ -34,8 +37,8 @@ const mapElectionResponse = (election) => ({
   startDate: election.startTime ? election.startTime.toISOString() : null,
   endDate: election.endTime ? election.endTime.toISOString() : null,
   imageUrl: election.imageUrl || "",
+  audience: normalizeElectionAudience(election.audience),
   categories: (election.categories || []).map((category) => category.title),
-  // voterListUrl: election.voterListUrl || "",
   //aspirantListUrl: election.aspirantListUrl || "",
 });
 
@@ -61,24 +64,14 @@ const normalizeCategories = (categories = []) =>
     imageUrl: "",
   }));
 
-const normalizeEligibleVoters = (voters = []) =>
-  voters.map((voter) => ({
-    name: String(voter.name || "").trim(),
-    studentId: String(voter.studentId || "").trim(),
-    programmeOfStudy: String(voter.programmeOfStudy || "").trim(),
-    level: String(voter.level || "").trim(),
-    faculty: String(voter.faculty || "").trim(),
-  }));
+const resolveElectionAudience = (body = {}) =>
+  normalizeElectionAudience(body.audience || {
+    scope: body.audienceScope || "all_students",
+    faculties: body.faculties,
+    nationalities: body.nationalities,
+  });
 
-const buildVoterDocs = ({ voters = [], election, schoolId }) =>
-  normalizeEligibleVoters(voters)
-    .filter((voter) => voter.name && voter.studentId)
-    .map((voter) => ({
-      ...voter,
-      schoolId,
-      electionId: election._id,
-      source: "upload",
-    }));
+const validateEcElectionAudience = (audience) => validateElectionAudience(audience);
 
 const resolveAspirantImageUrl = async ({ aspirant, req }) => {
   const providedImageUrl = String(aspirant.imageUrl || "").trim();
@@ -530,11 +523,12 @@ export const getAdminElectionById = async (req, res) => {
       return sendError(res, 404, "Election not found");
     }
 
-    const [aspirants, storedVoterCount] = await Promise.all([
+    const audienceQuery = buildAudienceStudentQuery(election);
+    const [aspirants, eligibleStudentCount] = await Promise.all([
       Aspirant.find({ electionId: election._id, schoolId: req.schoolId })
         .sort({ electoralCategory: 1, name: 1 })
         .select("name studentId programmeOfStudy level faculty electoralCategory imageUrl"),
-      Voter.countDocuments({ electionId: election._id, schoolId: req.schoolId }),
+      audienceQuery ? Student.countDocuments(audienceQuery) : Promise.resolve(0),
     ]);
 
     return res.status(200).json({
@@ -544,7 +538,8 @@ export const getAdminElectionById = async (req, res) => {
       startDate: election.startTime ? election.startTime.toISOString() : null,
       endDate: election.endTime ? election.endTime.toISOString() : null,
       categories: (election.categories || []).map((category) => category.title),
-      voterCount: storedVoterCount || election.eligibleVoters?.length || 0,
+      audience: normalizeElectionAudience(election.audience),
+      eligibleStudentCount,
       aspirants: aspirants.map(mapEditAspirantResponse),
     });
   } catch (error) {
@@ -557,7 +552,7 @@ export const getAdminElectionCategories = async (req, res) => {
     const election = await Election.findOne({
       _id: req.params.electionId,
       schoolId: req.schoolId,
-    }).select("schoolId subTitle categories votes");
+    }).select("schoolId subTitle categories votes audience");
 
     if (!election) {
       return sendError(res, 404, "Election not found");
@@ -567,6 +562,7 @@ export const getAdminElectionCategories = async (req, res) => {
       election,
       schoolId: req.schoolId,
       studentRegistryId: req.ecUser?.studentId,
+      student: req.ecUser,
     });
 
     const votes = await getStoredVotesForElection(election);
@@ -621,7 +617,7 @@ export const getAdminElectionAspirants = async (req, res) => {
     const election = await Election.findOne({
       _id: electionId,
       schoolId: req.schoolId,
-    }).select("_id votes");
+    }).select("_id schoolId audience votes");
 
     if (!election) {
       return sendError(res, 404, "Election not found");
@@ -630,6 +626,7 @@ export const getAdminElectionAspirants = async (req, res) => {
       election,
       schoolId: req.schoolId,
       studentRegistryId: req.ecUser?.studentId,
+      student: req.ecUser,
     });
 
     const filter = {
@@ -690,11 +687,21 @@ export const createAdminElection = async (req, res) => {
       endDate,
       categories = [],
       status,
-      voters = [],
       aspirants = [],
-      voterListUrl = "",
       aspirantListUrl = "",
+      audience,
+      audienceScope,
+      faculties,
+      nationalities,
     } = req.body;
+
+    if (req.body.voters != null || req.body.voterListUrl != null) {
+      return sendError(
+        res,
+        400,
+        "EC voter-list uploads have been retired. Use audience filters against imported school students."
+      );
+    }
 
     if (!title || !status) {
       return sendError(res, 400, "title and status are required");
@@ -703,6 +710,16 @@ export const createAdminElection = async (req, res) => {
     const normalizedStatus = parseStatus(status);
     if (!["draft", "scheduled"].includes(normalizedStatus)) {
       return sendError(res, 400, "status must be draft or scheduled");
+    }
+    const normalizedAudience = resolveElectionAudience({
+      audience,
+      audienceScope,
+      faculties,
+      nationalities,
+    });
+    const audienceError = validateEcElectionAudience(normalizedAudience);
+    if (audienceError) {
+      return sendError(res, 400, audienceError);
     }
 
     const normalizedCategoryTitles = (categories || []).map((category) => String(category).trim());
@@ -813,7 +830,7 @@ export const createAdminElection = async (req, res) => {
       startTime: start,
       endTime: end,
       categories: normalizeCategories(normalizedCategoryTitles.filter(Boolean)),
-      eligibleVoters: normalizeEligibleVoters(voters),
+      audience: normalizedAudience,
       candidates: aspirants
         .map((aspirant) => ({
           name: String(aspirant.name || "").trim(),
@@ -821,7 +838,6 @@ export const createAdminElection = async (req, res) => {
         }))
         .filter((aspirant) => aspirant.name && aspirant.position),
       status: normalizedStatus,
-      voterListUrl,
       aspirantListUrl,
       subTitle: school?.shortName || "",
     });
@@ -836,15 +852,6 @@ export const createAdminElection = async (req, res) => {
       await Aspirant.insertMany(aspirantDocs);
     }
 
-    const voterDocs = buildVoterDocs({
-      voters,
-      election,
-      schoolId: req.schoolId,
-    });
-    if (voterDocs.length > 0) {
-      await Voter.insertMany(voterDocs);
-    }
-
     await recordActivity({
       actorType: EC_ROLE,
       actorId: req.ecUser._id,
@@ -853,7 +860,6 @@ export const createAdminElection = async (req, res) => {
       metadata: {
         electionId: election._id,
         status: election.status,
-        votersImported: voterDocs.length,
         aspirantsImported: aspirantDocs.length,
       },
     });
@@ -865,16 +871,6 @@ export const createAdminElection = async (req, res) => {
       priority: "normal",
       data: { electionId: election._id.toString(), electionTitle: election.title },
     });
-    if (voterDocs.length > 0) {
-      await notifySchoolAdmins({
-        schoolId: req.schoolId,
-        type: "voter_list_uploaded_successfully",
-        title: "Voter list uploaded",
-        message: `${voterDocs.length} voter records were uploaded for ${election.title}.`,
-        priority: "normal",
-        data: { electionId: election._id.toString(), count: voterDocs.length },
-      });
-    }
     if (aspirantDocs.length > 0) {
       await notifySchoolAdmins({
         schoolId: req.schoolId,
@@ -933,17 +929,25 @@ export const updateAdminElection = async (req, res) => {
       endDate,
       categories,
       status,
-      keepExistingVoters,
-      voters,
       aspirants,
-      voterListUrl,
       aspirantListUrl,
+      audience,
+      audienceScope,
+      faculties,
+      nationalities,
     } = req.body;
-    const previousEligibleStudentIds = new Set(
-      (election.eligibleVoters || [])
-        .map((voter) => String(voter.studentId || "").trim())
-        .filter(Boolean)
-    );
+
+    if (
+      req.body.voters != null ||
+      req.body.voterListUrl != null ||
+      req.body.keepExistingVoters != null
+    ) {
+      return sendError(
+        res,
+        400,
+        "EC voter-list uploads have been retired. Use audience filters against imported school students."
+      );
+    }
 
     if (title != null) election.title = title;
     if (imageUrl != null) {
@@ -990,13 +994,23 @@ export const updateAdminElection = async (req, res) => {
       }
       election.categories = normalizeCategories(categories);
     }
-    if (voters != null) {
-      if (!Array.isArray(voters) || voters.length === 0) {
-        return sendError(res, 400, "voters must be a non-empty array when provided");
+    if (
+      audience !== undefined ||
+      audienceScope !== undefined ||
+      faculties !== undefined ||
+      nationalities !== undefined
+    ) {
+      const normalizedAudience = resolveElectionAudience({
+        audience,
+        audienceScope,
+        faculties,
+        nationalities,
+      });
+      const audienceError = validateEcElectionAudience(normalizedAudience);
+      if (audienceError) {
+        return sendError(res, 400, audienceError);
       }
-      election.eligibleVoters = normalizeEligibleVoters(voters);
-    } else if (keepExistingVoters === true) {
-      // Intentionally preserve the existing voter registry and voter count.
+      election.audience = normalizedAudience;
     }
     if (status != null) {
       const normalizedStatus = parseStatus(status);
@@ -1011,7 +1025,6 @@ export const updateAdminElection = async (req, res) => {
       }
       election.status = normalizedStatus;
     }
-    if (voterListUrl != null) election.voterListUrl = voterListUrl;
     if (aspirantListUrl != null) election.aspirantListUrl = aspirantListUrl;
     if (aspirants != null) {
       if (!Array.isArray(aspirants) || aspirants.length === 0) {
@@ -1102,40 +1115,6 @@ export const updateAdminElection = async (req, res) => {
     }
 
     await election.save();
-
-    if (voters != null) {
-      await Voter.deleteMany({ electionId: election._id });
-      const voterDocs = buildVoterDocs({
-        voters,
-        election,
-        schoolId: req.schoolId,
-      });
-      if (voterDocs.length > 0) {
-        await Voter.insertMany(voterDocs);
-      }
-      const nextEligibleStudentIds = new Set(
-        normalizeEligibleVoters(voters)
-          .map((voter) => String(voter.studentId || "").trim())
-          .filter(Boolean)
-      );
-      const removedStudentIds = Array.from(previousEligibleStudentIds).filter(
-        (studentId) => !nextEligibleStudentIds.has(studentId)
-      );
-      await notifyRemovedStudentsFromElection({
-        schoolId: req.schoolId,
-        electionId: election._id,
-        electionTitle: election.title,
-        removedStudentRegistryIds: removedStudentIds,
-      });
-      await notifySchoolAdmins({
-        schoolId: req.schoolId,
-        type: "voter_list_uploaded_successfully",
-        title: "Voter list uploaded",
-        message: `${voterDocs.length} voter records were uploaded for ${election.title}.`,
-        priority: "normal",
-        data: { electionId: election._id.toString(), count: voterDocs.length },
-      });
-    }
 
     if (aspirants != null) {
       await Aspirant.deleteMany({ electionId: election._id });
@@ -1313,7 +1292,6 @@ export const deleteAdminElection = async (req, res) => {
     const eligibleStudentIds = await getEligibleStudentObjectIdsForElection(election);
     const deletedPayload = buildStudentHomeElectionEventPayload(election, "deleted");
 
-    await Voter.deleteMany({ electionId: election._id });
     await Aspirant.deleteMany({ electionId: election._id });
     await Election.deleteOne({ _id: election._id });
     await recordActivity({

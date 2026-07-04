@@ -15,7 +15,6 @@ const getStudentSchoolId = (student) => student.schoolId?.toString() || null;
 const STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS = Number(
   process.env.STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS || 3
 );
-const usesEmbeddedEligibilityFallback = () => process.env.ELIGIBILITY_SOURCE === "embedded_first";
 const electionListProjection = () =>
   [
     "title",
@@ -28,8 +27,8 @@ const electionListProjection = () =>
     "imageUrl",
     "totalVotes",
     "categories",
+    "audience",
     "createdAt",
-    usesEmbeddedEligibilityFallback() ? "eligibleVoters" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -198,7 +197,6 @@ export const getElectionById = async (req, res) => {
     return res.status(200).json({
       ...toElectionCard(election, voteCount),
       categories: (election.categories || []).map((category) => category.title),
-      eligibleVoters: election.eligibleVoters?.length || 0,
       votesCast: voteCount,
     });
   } catch (error) {
@@ -264,8 +262,8 @@ export const getElectionSchedule = async (req, res) => {
           "endTime",
           "schoolId",
           "imageUrl",
+          "audience",
           "categories",
-          usesEmbeddedEligibilityFallback() ? "eligibleVoters" : "",
         ]
           .filter(Boolean)
           .join(" ")

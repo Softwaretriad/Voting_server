@@ -47,6 +47,14 @@ export const syncSchoolSubscriptionState = (school, now = new Date()) => {
   if (!school) return school;
 
   if (
+    school.registrationStatus &&
+    school.registrationStatus !== "approved"
+  ) {
+    school.subscriptionActive = false;
+    return school;
+  }
+
+  if (
     school.subscriptionTerm === "one_off_election" &&
     school.oneOffElectionConsumed
   ) {

@@ -4,7 +4,6 @@ import School from "../models/school.js";
 import Student from "../models/Student.js";
 import Election from "../models/Election.js";
 import Aspirant from "../models/Aspirant.js";
-import Voter from "../models/Voter.js";
 import Vote from "../models/Vote.js";
 import { signAccessToken } from "../utils/studentAuth.js";
 
@@ -61,14 +60,6 @@ const seed = async () => {
   for (const studentData of students) {
     createdStudents.push(await Student.create(studentData));
   }
-  const eligibleVoters = createdStudents.map((student) => ({
-    name: `${student.firstName} ${student.lastName}`,
-    studentId: student.studentId,
-    programmeOfStudy: student.programOfStudy,
-    level: String(student.currentYearOfStudy),
-    faculty: student.department,
-  }));
-
   const election = await Election.create({
     schoolId: school._id,
     title: `Load Vote Election ${stamp}`,
@@ -78,21 +69,11 @@ const seed = async () => {
     startTime: new Date(Date.now() - 60 * 1000),
     endTime: new Date(Date.now() + 60 * 60 * 1000),
     status: "active",
+    audience: { scope: "all_students" },
     categories: [{ title: "SRC President", subTitle: school.shortName }],
-    eligibleVoters,
     candidates: [{ name: "Load Candidate A", position: "SRC President" }],
     totalVotes: 0,
   });
-  await Voter.insertMany(
-    eligibleVoters.map((voter) => ({
-      ...voter,
-      schoolId: school._id,
-      electionId: election._id,
-      email:
-        createdStudents.find((student) => student.studentId === voter.studentId)?.email || "",
-      source: "upload",
-    }))
-  );
 
   const categoryId = election.categories[0]._id;
   const aspirant = await Aspirant.create({

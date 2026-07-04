@@ -5,7 +5,6 @@ import Student from "../models/Student.js";
 import Election from "../models/Election.js";
 import Aspirant from "../models/Aspirant.js";
 import Notification from "../models/Notification.js";
-import Voter from "../models/Voter.js";
 
 dotenv.config();
 
@@ -122,7 +121,6 @@ const seed = async () => {
   if (existingElectionIds.length > 0) {
     await Promise.all([
       Aspirant.deleteMany({ electionId: { $in: existingElectionIds } }),
-      Voter.deleteMany({ electionId: { $in: existingElectionIds } }),
       Election.deleteMany({ _id: { $in: existingElectionIds } }),
     ]);
   }
@@ -138,6 +136,7 @@ const seed = async () => {
     startTime: new Date(now - 60 * 60 * 1000),
     endTime: new Date(now + 24 * 60 * 60 * 1000),
     status: "active",
+    audience: { scope: "faculty", faculties: ["Faculty of Engineering"] },
     categories: [
       { title: "President", subTitle: school.shortName },
       { title: "General Secretary", subTitle: school.shortName },
@@ -147,22 +146,6 @@ const seed = async () => {
       { name: "Kojo Mensah", position: "President" },
       { name: "Esi Boateng", position: "General Secretary" },
       { name: "Yaw Asare", position: "General Secretary" },
-    ],
-    eligibleVoters: [
-      {
-        name: "Review Student",
-        studentId: reviewStudent.studentId,
-        programmeOfStudy: reviewStudent.programOfStudy,
-        level: String(reviewStudent.currentYearOfStudy),
-        faculty: reviewStudent.department,
-      },
-      {
-        name: "Review Admin",
-        studentId: reviewAdmin.studentId,
-        programmeOfStudy: reviewAdmin.programOfStudy,
-        level: String(reviewAdmin.currentYearOfStudy),
-        faculty: reviewAdmin.department,
-      },
     ],
   });
 
@@ -175,17 +158,9 @@ const seed = async () => {
     startTime: new Date(now + 24 * 60 * 60 * 1000),
     endTime: new Date(now + 48 * 60 * 60 * 1000),
     status: "scheduled",
+    audience: { scope: "faculty", faculties: ["Faculty of Engineering"] },
     categories: [{ title: "Treasurer", subTitle: school.shortName }],
     candidates: [{ name: "Scheduled Candidate", position: "Treasurer" }],
-    eligibleVoters: [
-      {
-        name: "Review Student",
-        studentId: reviewStudent.studentId,
-        programmeOfStudy: reviewStudent.programOfStudy,
-        level: String(reviewStudent.currentYearOfStudy),
-        faculty: reviewStudent.department,
-      },
-    ],
   });
 
   const closedElection = await Election.create({
@@ -197,64 +172,13 @@ const seed = async () => {
     startTime: new Date(now - 7 * 24 * 60 * 60 * 1000),
     endTime: new Date(now - 6 * 24 * 60 * 60 * 1000),
     status: "closed",
+    audience: { scope: "faculty", faculties: ["Faculty of Engineering"] },
     categories: [{ title: "Welfare Officer", subTitle: school.shortName }],
     candidates: [
       { name: "Closed Winner", position: "Welfare Officer" },
       { name: "Closed Runner-Up", position: "Welfare Officer" },
     ],
-    eligibleVoters: [
-      {
-        name: "Review Student",
-        studentId: reviewStudent.studentId,
-        programmeOfStudy: reviewStudent.programOfStudy,
-        level: String(reviewStudent.currentYearOfStudy),
-        faculty: reviewStudent.department,
-      },
-    ],
   });
-
-  await Voter.insertMany([
-    {
-      schoolId: school._id,
-      electionId: activeElection._id,
-      name: "Review Student",
-      studentId: reviewStudent.studentId,
-      programmeOfStudy: reviewStudent.programOfStudy,
-      level: String(reviewStudent.currentYearOfStudy),
-      faculty: reviewStudent.department,
-      email: reviewStudent.email,
-    },
-    {
-      schoolId: school._id,
-      electionId: activeElection._id,
-      name: "Review Admin",
-      studentId: reviewAdmin.studentId,
-      programmeOfStudy: reviewAdmin.programOfStudy,
-      level: String(reviewAdmin.currentYearOfStudy),
-      faculty: reviewAdmin.department,
-      email: reviewAdmin.email,
-    },
-    {
-      schoolId: school._id,
-      electionId: scheduledElection._id,
-      name: "Review Student",
-      studentId: reviewStudent.studentId,
-      programmeOfStudy: reviewStudent.programOfStudy,
-      level: String(reviewStudent.currentYearOfStudy),
-      faculty: reviewStudent.department,
-      email: reviewStudent.email,
-    },
-    {
-      schoolId: school._id,
-      electionId: closedElection._id,
-      name: "Review Student",
-      studentId: reviewStudent.studentId,
-      programmeOfStudy: reviewStudent.programOfStudy,
-      level: String(reviewStudent.currentYearOfStudy),
-      faculty: reviewStudent.department,
-      email: reviewStudent.email,
-    },
-  ]);
 
   const [activePresidentCategory, activeSecretaryCategory] = activeElection.categories;
   const [closedCategory] = closedElection.categories;

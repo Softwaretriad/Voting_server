@@ -159,6 +159,38 @@ export const uploadBufferToFirebaseStorage = async ({
   };
 };
 
+export const uploadPrivateBufferToFirebaseStorage = async ({
+  buffer,
+  storagePath,
+  contentType = "application/octet-stream",
+  metadata = {},
+}) => {
+  if (!buffer || !storagePath) {
+    throw new Error("buffer and storagePath are required");
+  }
+
+  const bucket = getFirebaseStorageBucket();
+  await bucket.file(storagePath).save(buffer, {
+    resumable: false,
+    metadata: {
+      contentType,
+      cacheControl: "private, no-store",
+      metadata,
+    },
+  });
+
+  return { bucket: bucket.name, path: storagePath };
+};
+
+export const downloadPrivateFirebaseStorageBuffer = async (storagePath) => {
+  if (!storagePath) {
+    throw new Error("storagePath is required");
+  }
+
+  const [buffer] = await getFirebaseStorageBucket().file(storagePath).download();
+  return buffer;
+};
+
 export const uploadFileToFirebaseStorage = async ({
   filePath,
   storagePath,

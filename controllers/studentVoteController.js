@@ -181,7 +181,7 @@ const loadVoteTargetContext = async ({ electionId, aspirantId, cacheKey }) => {
 
   const [election, aspirant] = await Promise.all([
     Election.findById(electionId)
-      .select("_id schoolId status endTime eligibleVoters title totalVotes")
+      .select("_id schoolId status endTime audience title totalVotes")
       .lean(),
     Aspirant.findOne({
       _id: aspirantId,
@@ -243,6 +243,54 @@ const resetPinValidationError = (pin) => {
   return null;
 };
 
+const votingPinRequiredResponse = (res) =>
+  sendError(res, 409, "Voting PIN setup is required before voting", {
+    code: "VOTING_PIN_REQUIRED",
+    requiresVotingPinSetup: true,
+  });
+
+export const setVotingPin = async (req, res) => {
+  try {
+    const { newPin } = req.body || {};
+    if (req.params?.userId && req.student._id.toString() !== req.params.userId) {
+      return sendError(res, 403, "You are not allowed to create this voting PIN");
+    }
+
+    const pinError = resetPinValidationError(newPin);
+    if (pinError) {
+      return sendError(res, 422, pinError);
+    }
+
+    const student = await Student.findById(req.student._id);
+    if (!student) {
+      return sendError(res, 404, "Student not found");
+    }
+
+    if (student.votingPin) {
+      return sendError(res, 409, "Voting PIN already exists. Use PIN reset to change it.");
+    }
+
+    student.votingPin = String(newPin);
+    student.votingPinAttempts = 0;
+    student.votingPinLockedUntil = null;
+    await student.save();
+
+    await recordActivity({
+      actorType: "student",
+      actorId: student._id,
+      schoolId: student.schoolId,
+      action: "Voting PIN Created",
+    });
+
+    return res.status(201).json({
+      hasVotingPin: true,
+      message: "Voting PIN created successfully",
+    });
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to create voting PIN");
+  }
+};
+
 export const verifyVotingPin = async (req, res) => {
   try {
     const { studentId, votingPin } = req.body;
@@ -254,6 +302,10 @@ export const verifyVotingPin = async (req, res) => {
 
     if (req.student._id.toString() !== studentId) {
       return sendError(res, 403, "You are not allowed to verify this PIN");
+    }
+
+    if (!student.votingPin) {
+      return votingPinRequiredResponse(res);
     }
 
     if (student.votingPinLockedUntil && student.votingPinLockedUntil > new Date()) {
@@ -346,6 +398,12 @@ export const castStudentVote = async (req, res) => {
     }
 
     const aspirantCategoryId = aspirant.categoryId?.toString();
+    if (!student.votingPin) {
+      return votingPinRequiredResponse(res);
+    }
+    if (votingPin == null) {
+      return sendError(res, 400, "votingPin is required");
+    }
     if (!(await comparePin(votingPin, student.votingPin))) {
       timing.mark("pin check");
       return sendError(res, 400, "Invalid voting PIN");

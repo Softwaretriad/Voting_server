@@ -3,7 +3,6 @@ import Aspirant from "../models/Aspirant.js";
 import Election from "../models/Election.js";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
-import Voter from "../models/Voter.js";
 import { sendError } from "../utils/apiResponse.js";
 import { resolveLogoUrl } from "../utils/logoUrl.js";
 import {
@@ -20,6 +19,7 @@ import {
   getElectionAnalyticsSnapshot,
   refreshElectionAnalyticsSnapshot,
 } from "../utils/electionAnalytics.js";
+import { buildAudienceStudentQuery } from "../utils/electionAudience.js";
 
 const normalizeElectionStatus = (status) =>
   status === "ended" ? "closed" : status === "pending" ? "draft" : status;
@@ -179,7 +179,7 @@ const buildFacultyVoteStatus = ({
 }) => {
   const registeredByFaculty = new Map();
   registeredVoters.forEach((voter) => {
-    const faculty = voter.faculty || "Unknown";
+    const faculty = voter.faculty || voter.department || "Unknown";
     registeredByFaculty.set(faculty, (registeredByFaculty.get(faculty) || 0) + 1);
   });
 
@@ -207,6 +207,20 @@ const buildFacultyVoteStatus = ({
     })
     .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
 };
+
+const getAudienceStudentsForElection = async (election) => {
+  const query = buildAudienceStudentQuery(election);
+  return query
+    ? Student.find(query).select("_id studentId department nationality accountRole")
+    : [];
+};
+
+const resolveRegisteredVoterBase = ({
+  audienceStudents = [],
+}) => ({
+  registeredVoters: audienceStudents.length,
+  registeredVoterRows: audienceStudents,
+});
 
 const buildCategoryLeaders = ({ election, aspirants }) =>
   (election.categories || []).map((category) => {
@@ -250,10 +264,9 @@ export const getAdminDashboard = async (req, res) => {
       return;
     }
 
-    const [school, elections, studentsCount] = await Promise.all([
+    const [school, elections] = await Promise.all([
       School.findById(schoolId),
       Election.find({ schoolId }).sort({ startTime: -1, createdAt: -1 }),
-      Student.countDocuments({ schoolId }),
     ]);
 
     if (!school) {
@@ -276,14 +289,18 @@ export const getAdminDashboard = async (req, res) => {
       }
     });
 
-    const activeElectionsList = electionsWithVotes
+    const activeElectionsList = await Promise.all(electionsWithVotes
       .filter((election) => {
         const status = normalizeElectionStatus(election.status);
         return status === "active" || status === "scheduled";
       })
-      .map((election) => {
+      .map(async (election) => {
         const accreditedVoters = getAccreditedVoterCount(election.votes);
         const ballotsCast = election.votes?.length || 0;
+        const audienceStudents = await getAudienceStudentsForElection(election);
+        const { registeredVoters } = resolveRegisteredVoterBase({
+          audienceStudents,
+        });
 
         return {
           _id: election._id.toString(),
@@ -295,19 +312,17 @@ export const getAdminDashboard = async (req, res) => {
           accreditedVoters,
           ballotsCast,
           totalBallotsCast: ballotsCast,
-          eligibleVoters:
-            election.eligibleVoters?.length > 0
-              ? election.eligibleVoters.length
-              : studentsCount,
+          registeredVoters,
           startDate: election.startTime?.toISOString() || null,
           endDate: election.endTime?.toISOString() || null,
         };
-      })
+      }))
+      .then((items) => items
       .sort((a, b) => {
         const aTime = a.startDate ? new Date(a.startDate).getTime() : Number.MAX_SAFE_INTEGER;
         const bTime = b.startDate ? new Date(b.startDate).getTime() : Number.MAX_SAFE_INTEGER;
         return aTime - bTime;
-      });
+      }));
 
     const selectedPlan = getPlanConfig(school.plan);
     const selectedTerm = getSubscriptionTermConfig(school.subscriptionTerm);
@@ -362,9 +377,13 @@ export const getAdminReports = async (req, res) => {
     const pagedElections = pagination.enabled
       ? electionsWithVotes.slice(pagination.skip, pagination.skip + pagination.limit)
       : electionsWithVotes;
-    const reports = pagedElections.map((election) => {
+    const reports = await Promise.all(pagedElections.map(async (election) => {
       const uniqueVoters = getAccreditedVoterCount(election.votes);
       const ballotsCast = election.votes?.length || 0;
+      const audienceStudents = await getAudienceStudentsForElection(election);
+      const { registeredVoters } = resolveRegisteredVoterBase({
+        audienceStudents,
+      });
 
       return {
         _id: election._id.toString(),
@@ -379,12 +398,12 @@ export const getAdminReports = async (req, res) => {
         ballotsCast,
         totalBallotsCast: ballotsCast,
         turnoutPercentage:
-          totalEligibleVoters > 0
-            ? Number(((uniqueVoters / totalEligibleVoters) * 100).toFixed(2))
+          registeredVoters > 0
+            ? Number(((uniqueVoters / registeredVoters) * 100).toFixed(2))
             : 0,
         totalCategories: election.categories?.length || 0,
       };
-    });
+    }));
 
     return res.status(200).json({
       school: {
@@ -427,17 +446,14 @@ export const getAdminElectionReport = async (req, res) => {
       (await refreshElectionAnalyticsSnapshot(storedElection));
     const election = await attachStoredVotes(storedElection);
 
-    const [aspirants, voters, students, admins] = await Promise.all([
+    const [aspirants, students, audienceStudents] = await Promise.all([
       Aspirant.find({ electionId: election._id, schoolId: election.schoolId }).sort({
         electoralCategory: 1,
         voteCount: -1,
         name: 1,
       }),
-      Voter.find({ electionId: election._id, schoolId: election.schoolId }).select(
-        "studentId faculty"
-      ),
-      Student.find({ schoolId: election.schoolId }).select("_id studentId department accountRole"),
-      Student.find({ schoolId: election.schoolId, accountRole: ecRoleQuery() }).select("_id"),
+      Student.find({ schoolId: election.schoolId }).select("_id studentId department nationality accountRole"),
+      getAudienceStudentsForElection(election),
     ]);
 
     const uniqueStudentVoterIds = Array.from(
@@ -453,13 +469,12 @@ export const getAdminElectionReport = async (req, res) => {
         .filter(Boolean)
     );
     const studentById = new Map(students.map((student) => [student._id.toString(), student]));
-    const registryFacultyByStudentId = new Map(
-      voters.map((voter) => [voter.studentId, voter.faculty || "Unknown"])
-    );
+    const registryFacultyByStudentId = new Map();
 
-    const registeredVoters =
-      snapshot?.registeredVoters ||
-      (voters.length > 0 ? voters.length : election.eligibleVoters?.length || students.length + admins.length);
+    const registeredVoterBase = resolveRegisteredVoterBase({
+      audienceStudents,
+    });
+    const registeredVoters = snapshot?.registeredVoters || registeredVoterBase.registeredVoters;
     const accreditedVoters = uniqueAccreditedVoterIds.size;
     const ballotsCast = election.votes?.length || 0;
     const votesCast = accreditedVoters;
@@ -495,7 +510,7 @@ export const getAdminElectionReport = async (req, res) => {
       facultyVoteStatus: snapshot?.facultyVoteStatus?.length
         ? snapshot.facultyVoteStatus
         : buildFacultyVoteStatus({
-            registeredVoters: voters,
+            registeredVoters: registeredVoterBase.registeredVoterRows,
             uniqueStudentVoterIds,
             studentById,
             registryFacultyByStudentId,
@@ -627,17 +642,14 @@ export const buildAdminElectionMonitorPayload = async ({
     (await refreshElectionAnalyticsSnapshot(storedElection));
   const election = await attachStoredVotes(storedElection);
 
-  const [aspirants, voters, students, admins] = await Promise.all([
+  const [aspirants, students, audienceStudents] = await Promise.all([
     Aspirant.find({ electionId: election._id, schoolId: election.schoolId }).sort({
       electoralCategory: 1,
       voteCount: -1,
       name: 1,
     }),
-    Voter.find({ electionId: election._id, schoolId: election.schoolId }).select(
-      "studentId faculty"
-    ),
-    Student.find({ schoolId: election.schoolId }).select("_id studentId department accountRole"),
-    Student.find({ schoolId: election.schoolId, accountRole: ecRoleQuery() }).select("_id"),
+    Student.find({ schoolId: election.schoolId }).select("_id studentId department nationality accountRole"),
+    getAudienceStudentsForElection(election),
   ]);
 
   const uniqueStudentVoterIds = Array.from(
@@ -653,13 +665,12 @@ export const buildAdminElectionMonitorPayload = async ({
       .filter(Boolean)
   );
   const studentById = new Map(students.map((student) => [student._id.toString(), student]));
-  const registryFacultyByStudentId = new Map(
-    voters.map((voter) => [voter.studentId, voter.faculty || "Unknown"])
-  );
+  const registryFacultyByStudentId = new Map();
 
-  const registeredVoters =
-    snapshot?.registeredVoters ||
-    (voters.length > 0 ? voters.length : election.eligibleVoters?.length || students.length + admins.length);
+  const registeredVoterBase = resolveRegisteredVoterBase({
+    audienceStudents,
+  });
+  const registeredVoters = snapshot?.registeredVoters || registeredVoterBase.registeredVoters;
   const accreditedVoters = uniqueAccreditedVoterIds.size;
   const ballotsCast = election.votes?.length || 0;
   const votesCast = accreditedVoters;
@@ -696,7 +707,7 @@ export const buildAdminElectionMonitorPayload = async ({
     facultyVoteStatus: snapshot?.facultyVoteStatus?.length
       ? snapshot.facultyVoteStatus
       : buildFacultyVoteStatus({
-          registeredVoters: voters,
+          registeredVoters: registeredVoterBase.registeredVoterRows,
           uniqueStudentVoterIds,
           studentById,
           registryFacultyByStudentId,

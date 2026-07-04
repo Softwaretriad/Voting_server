@@ -36,16 +36,17 @@ export const castAdminVote = async (req, res) => {
       return sendError(res, 403, "Election is not active");
     }
 
-    const isInVotersList = await isStudentRegistryIdInElectionVoters({
+    const isEligible = await isStudentRegistryIdInElectionVoters({
       election,
       schoolId: req.schoolId,
       studentRegistryId: req.ecUser?.studentId,
+      student: req.ecUser,
     });
-    if (!isInVotersList) {
+    if (!isEligible) {
       return sendError(
         res,
         403,
-        "You must be included in the voters list to vote in this election"
+        "You are not eligible to vote in this election"
       );
     }
 

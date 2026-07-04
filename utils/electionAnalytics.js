@@ -2,9 +2,8 @@ import Aspirant from "../models/Aspirant.js";
 import Election from "../models/Election.js";
 import ElectionAnalyticsSnapshot from "../models/ElectionAnalyticsSnapshot.js";
 import Student from "../models/Student.js";
-import Voter from "../models/Voter.js";
-import { ecRoleQuery } from "./ecRole.js";
 import { getStoredVotesForElection } from "./voteStore.js";
+import { buildAudienceStudentQuery } from "./electionAudience.js";
 
 const getVoteStudentIdentity = (vote) =>
   vote.studentId || vote.ecUserId || vote.voterId || null;
@@ -89,17 +88,14 @@ const buildCategoryLeaders = ({ election, aspirants }) =>
   });
 
 const buildFacultyVoteStatus = ({
-  voters,
   votes,
   students,
+  registeredStudents = [],
 }) => {
   const studentById = new Map(students.map((student) => [student._id.toString(), student]));
-  const registryFacultyByStudentId = new Map(
-    voters.map((voter) => [voter.studentId, voter.faculty || "Unknown"])
-  );
   const registeredByFaculty = new Map();
-  voters.forEach((voter) => {
-    const faculty = voter.faculty || "Unknown";
+  registeredStudents.forEach((student) => {
+    const faculty = student.department || "Unknown";
     registeredByFaculty.set(faculty, (registeredByFaculty.get(faculty) || 0) + 1);
   });
 
@@ -110,10 +106,7 @@ const buildFacultyVoteStatus = ({
 
   uniqueStudentVoterIds.forEach((studentId) => {
     const student = studentById.get(studentId);
-    const faculty =
-      student?.department ||
-      registryFacultyByStudentId.get(student?.studentId || "") ||
-      "Unknown";
+    const faculty = student?.department || "Unknown";
     votesByFaculty.set(faculty, (votesByFaculty.get(faculty) || 0) + 1);
   });
 
@@ -139,21 +132,23 @@ export const refreshElectionAnalyticsSnapshot = async (electionInput) => {
     return null;
   }
 
-  const [votes, voters, students, admins, aspirants] = await Promise.all([
+  const audienceStudentQuery = buildAudienceStudentQuery(election);
+
+  const [votes, students, aspirants, audienceStudents] = await Promise.all([
     getStoredVotesForElection(election),
-    Voter.find({ electionId: election._id, schoolId: election.schoolId }).select("studentId faculty"),
-    Student.find({ schoolId: election.schoolId }).select("_id studentId department accountRole"),
-    Student.find({ schoolId: election.schoolId, accountRole: ecRoleQuery() }).select("_id"),
+    Student.find({ schoolId: election.schoolId }).select("_id studentId department nationality accountRole"),
     Aspirant.find({ electionId: election._id, schoolId: election.schoolId }).sort({
       electoralCategory: 1,
       voteCount: -1,
       name: 1,
     }),
+    audienceStudentQuery
+      ? Student.find(audienceStudentQuery).select("_id studentId department nationality accountRole")
+      : Promise.resolve([]),
   ]);
 
   const uniqueVoters = new Set(votes.map((vote) => getAccreditedVoterKey(vote)).filter(Boolean));
-  const registeredVoters =
-    voters.length > 0 ? voters.length : election.eligibleVoters?.length || students.length + admins.length;
+  const registeredVoters = audienceStudents.length;
   const categoryTotals = Object.fromEntries(
     (election.categories || []).map((category) => [
       category._id.toString(),
@@ -180,7 +175,11 @@ export const refreshElectionAnalyticsSnapshot = async (electionInput) => {
         categoryLeaders: buildCategoryLeaders({ election, aspirants }),
         turnoutTrend: buildTurnoutTrend(votes, election),
         voteDistribution: buildVoteDistribution({ election, votes }),
-        facultyVoteStatus: buildFacultyVoteStatus({ voters, votes, students }),
+        facultyVoteStatus: buildFacultyVoteStatus({
+          votes,
+          students,
+          registeredStudents: audienceStudents,
+        }),
         refreshedAt: new Date(),
       },
     },

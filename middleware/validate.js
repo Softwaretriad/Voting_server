@@ -28,15 +28,14 @@ export const validators = {
       !body.phone ||
       !body.universityFullName ||
       !body.department ||
-      !body.programOfStudy ||
-      body.votingPin == null
+      !body.programOfStudy
     ) {
       return "All required registration fields must be provided";
     }
     if (!isStrongPassword(body.password)) {
       return strongPasswordMessage;
     }
-    if (!isFourDigitPin(body.votingPin)) {
+    if (body.votingPin != null && !isFourDigitPin(body.votingPin)) {
       return "Voting PIN must be a 4-digit integer";
     }
     return null;
@@ -45,6 +44,10 @@ export const validators = {
     isValidEmail(req.body?.email) && req.body?.password
       ? null
       : "a valid email and password are required",
+  googleStudentLogin: (req) =>
+    req.body?.idToken && String(req.body.idToken).trim()
+      ? null
+      : "idToken is required",
   loginSchoolAdmin: (req) =>
     isValidEmail(req.body?.email) && req.body?.password
       ? null
@@ -80,6 +83,10 @@ export const validators = {
     req.body?.resetToken && isFourDigitPin(req.body?.newPin)
       ? null
       : "resetToken and a valid 4-digit newPin are required",
+  setVotingPin: (req) =>
+    isFourDigitPin(req.body?.newPin)
+      ? null
+      : "newPin must be exactly 4 digits",
   verifyVotingPin: (req) =>
     req.body?.studentId && isFourDigitPin(req.body?.votingPin)
       ? null
@@ -88,9 +95,9 @@ export const validators = {
     req.body?.studentId &&
     req.body?.electionId &&
     req.body?.aspirantId &&
-    isFourDigitPin(req.body?.votingPin)
+    (req.body?.votingPin == null || isFourDigitPin(req.body?.votingPin))
       ? null
-      : "studentId, electionId, aspirantId, and a valid 4-digit votingPin are required",
+      : "studentId, electionId, aspirantId, and a valid 4-digit votingPin when provided are required",
   castEcVote: (req) =>
     req.body?.ecUserId &&
     req.body?.electionId &&
@@ -219,28 +226,14 @@ export const validators = {
     if (body.categories != null && !Array.isArray(body.categories)) {
       return "categories must be an array when provided";
     }
-    if (body.voters != null && !Array.isArray(body.voters)) {
-      return "voters must be an array when provided";
+    if (body.voters != null || body.voterListUrl != null || body.keepExistingVoters != null) {
+      return "EC voter-list uploads are no longer supported; use audience filters";
     }
     if (body.aspirants != null && !Array.isArray(body.aspirants)) {
       return "aspirants must be an array when provided";
     }
-    if (body.status === "scheduled" && (body.voters == null || body.voters.length === 0)) {
-      return "voters is required and must be a non-empty array for scheduled elections";
-    }
     if (body.status === "scheduled" && (body.aspirants == null || body.aspirants.length === 0)) {
       return "aspirants is required and must be a non-empty array for scheduled elections";
-    }
-    const invalidVoter = (body.voters || []).find(
-      (voter) =>
-        !voter?.name ||
-        !voter?.studentId ||
-        !voter?.programmeOfStudy ||
-        !voter?.level ||
-        !voter?.faculty
-    );
-    if (invalidVoter) {
-      return "Each voter must include name, studentId, programmeOfStudy, level, and faculty";
     }
     const invalidAspirant = (body.aspirants || []).find(
       (aspirant) =>

@@ -23,6 +23,7 @@
     "cleanup:load-vote": "node scripts/cleanupLoadVoteTestData.js",
     "cleanup:result-email-data": "node scripts/cleanupRetiredResultEmailData.js",
     "cleanup:embedded-votes": "node scripts/cleanupEmbeddedElectionVotes.js",
+    "cleanup:retired-voters": "node scripts/dropRetiredVotersCollection.js",
     "test:runtime": "node scripts/runtimeTestStudentApi.js",
     "test:v6": "node scripts/testV6Additions.js"
   },
@@ -33,11 +34,13 @@
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
     "firebase-admin": "^13.10.0",
+    "google-auth-library": "^10.9.0",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.17.0",
     "mongoose": "^8.16.0",
     "multer": "^2.0.1",
     "nodemailer": "^7.0.3",
+    "read-excel-file": "^9.2.0",
     "redis": "^4.7.1",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.3"

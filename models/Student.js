@@ -30,6 +30,7 @@ const StudentSchema = new mongoose.Schema(
       },
     },
     password: { type: String, required: true },
+    passwordLoginEnabled: { type: Boolean, default: true },
     phone: { type: String, required: true, trim: true },
     schoolId: { type: mongoose.Schema.Types.ObjectId, ref: "School", default: null },
     accountRole: {
@@ -44,7 +45,16 @@ const StudentSchema = new mongoose.Schema(
     department: { type: String, required: true, trim: true },
     currentYearOfStudy: { type: Number, default: null, min: 1 },
     programOfStudy: { type: String, required: true, trim: true },
-    votingPin: { type: String, required: true },
+    nationality: { type: String, default: "", trim: true },
+    votingPin: { type: String, default: null },
+    authProvider: {
+      type: String,
+      enum: ["password", "google", "imported"],
+      default: "password",
+      index: true,
+    },
+    googleSub: { type: String, default: null, trim: true },
+    googleLinkedAt: { type: Date, default: null },
     isEmailVerified: { type: Boolean, default: false },
     emailVerificationOtp: { type: String, default: null },
     emailVerificationOtpExpires: { type: Date, default: null },
@@ -79,16 +89,19 @@ StudentSchema.pre("save", async function preSave(next) {
 
 StudentSchema.pre("save", async function preSaveVotingPin(next) {
   if (!this.isModified("votingPin")) return next();
+  if (this.votingPin == null || this.votingPin === "") return next();
   if (isHashedValue(this.votingPin) || isPinHashValue(this.votingPin)) return next();
   this.votingPin = await hashPin(this.votingPin);
   next();
 });
 
 StudentSchema.methods.matchPassword = function matchPassword(plainText) {
+  if (this.passwordLoginEnabled === false) return false;
   return bcrypt.compare(plainText, this.password);
 };
 
 StudentSchema.index({ schoolId: 1, accountRole: 1 });
 StudentSchema.index({ schoolId: 1, studentId: 1 });
+StudentSchema.index({ googleSub: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model("Student", StudentSchema);

@@ -2,6 +2,7 @@ import express from "express";
 import {
   checkTokens,
   forgotPassword,
+  loginWithGoogle,
   loginStudent,
   logoutStudent,
   refreshSession,
@@ -45,6 +46,12 @@ router.post(
   createRateLimiter({ key: "login-student", windowMs: 15 * 60 * 1000, max: 8 }),
   validate(validators.loginStudent),
   loginStudent
+);
+router.post(
+  "/google",
+  createRateLimiter({ key: "login-google-student", windowMs: 15 * 60 * 1000, max: 12 }),
+  validate(validators.googleStudentLogin),
+  loginWithGoogle
 );
 router.post("/logout", validate(validators.logoutSession), logoutStudent);
 router.post(

@@ -16,7 +16,10 @@ import ecOperationsRoutes from "./routes/ecOperationsRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
 import debugRoutes from "./routes/debugRoutes.js";
+import publicRoutes from "./routes/publicRoutes.js";
 import schoolAdminRoutes from "./routes/schoolAdminRoutes.js";
+import schoolRegistrationReviewRoutes from "./routes/schoolRegistrationReviewRoutes.js";
+import superAdminRoutes from "./routes/superAdminRoutes.js";
 import { connectMongo } from "./utils/mongoConnection.js";
 import {
   corsMiddleware,
@@ -82,8 +85,11 @@ app.use(
 );
 
 app.use("/api/ec", ecRoutes);
+app.use("/public", publicRoutes);
 app.use("/auth", authRoutes);
 app.use("/school-admin", schoolAdminRoutes);
+app.use("/super-admin", superAdminRoutes);
+app.use("/internal/school-registrations", schoolRegistrationReviewRoutes);
 app.use("/schools", schoolRoutes);
 app.use("/students", studentRoutes);
 app.use("/elections", studentElectionRoutes);

@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import School from "../models/school.js";
 import SchoolAdmin from "../models/SchoolAdmin.js";
 import { sendError } from "../utils/apiResponse.js";
@@ -12,6 +13,8 @@ import {
   normalizeEmail,
   strongPasswordMessage,
 } from "../utils/security.js";
+import { isSchoolRegistrationReviewRequest } from "../middleware/authSchoolRegistrationReview.js";
+import { resolveSuperAdminFromRequest } from "../middleware/authSuperAdmin.js";
 export { promoteSchoolAdmins } from "./authController.js";
 import {
   calculateSubscriptionExpiry,
@@ -20,6 +23,10 @@ import {
   subscriptionTerms,
   syncSchoolSubscriptionState,
 } from "../utils/plans.js";
+import {
+  deleteOfficialSchoolDocument,
+  encryptAndUploadOfficialSchoolDocument,
+} from "../utils/officialSchoolDocuments.js";
 
 const isSupportedSubscriptionTerm = (term) =>
   Boolean(subscriptionTerms[String(term || "").trim()]);
@@ -38,6 +45,10 @@ export const createSchool = async (req, res) => {
     faculties = [],
   } = req.body;
 
+  let school = null;
+  let schoolAdmin = null;
+  const uploadedStoragePaths = [];
+
   try {
     const effectivePlan = plan || "free";
     const effectiveTerm = subscriptionTerm || "4_months";
@@ -54,6 +65,36 @@ export const createSchool = async (req, res) => {
     const selectedTerm = getSubscriptionTermConfig(effectiveTerm);
     const normalizedAdminEmail = normalizeEmail(admin?.email);
     const normalizedAllowedDomains = normalizeAllowedEmailDomains(allowedEmailDomains);
+    const superAdmin = await resolveSuperAdminFromRequest(req);
+    const isDeveloperOnboarding =
+      Boolean(superAdmin) || isSchoolRegistrationReviewRequest(req);
+    const registrationStatus = isDeveloperOnboarding ? "approved" : "pending";
+    const subscriptionActive = isDeveloperOnboarding;
+    const registrationReviewedAt = isDeveloperOnboarding ? new Date() : undefined;
+    const registrationReviewedBy = isDeveloperOnboarding
+      ? String(
+          req.schoolRegistrationReviewer ||
+            req.headers["x-reviewer-name"] ||
+            "developer-onboarding"
+        )
+          .trim()
+          .slice(0, 120)
+      : undefined;
+
+    if (!admin) {
+      return sendError(res, 400, "The first school admin account is required");
+    }
+
+    if (
+      !isDeveloperOnboarding &&
+      (!Array.isArray(req.files) || req.files.length === 0)
+    ) {
+      return sendError(
+        res,
+        400,
+        "At least one official school document is required for registration review"
+      );
+    }
 
     if (!isValidEmail(email)) {
       return sendError(res, 400, "email must be a valid email address");
@@ -96,7 +137,7 @@ export const createSchool = async (req, res) => {
       }
     }
 
-    const school = await School.create({
+    school = await School.create({
       name,
       fullName: fullName || name,
       shortName: shortName || "",
@@ -107,10 +148,13 @@ export const createSchool = async (req, res) => {
       subscriptionTerm: effectiveTerm,
       subscriptionStartedAt,
       subscriptionExpiresAt,
-      subscriptionActive: true,
+      subscriptionActive,
+      registrationStatus,
+      registrationSubmittedAt: new Date(),
+      registrationReviewedAt,
+      registrationReviewedBy,
       faculties,
     });
-    let schoolAdmin = null;
     if (admin) {
       try {
         schoolAdmin = await SchoolAdmin.create({
@@ -119,9 +163,11 @@ export const createSchool = async (req, res) => {
           lastName: String(admin.lastName).trim(),
           email: normalizedAdminEmail,
           password: admin.password,
+          isActive: isDeveloperOnboarding,
         });
       } catch (error) {
         if (error.code === 11000) {
+          await School.deleteOne({ _id: school._id });
           const duplicateSchoolId = Boolean(error.keyPattern?.schoolId);
           return sendError(
             res,
@@ -135,10 +181,31 @@ export const createSchool = async (req, res) => {
       }
     }
 
+    for (const file of req.files || []) {
+      const documentId = new mongoose.Types.ObjectId();
+      const document = await encryptAndUploadOfficialSchoolDocument({
+        schoolId: school._id.toString(),
+        documentId: documentId.toString(),
+        file,
+      });
+      uploadedStoragePaths.push(document.storagePath);
+      school.officialDocuments.push({
+        _id: documentId,
+        ...document,
+      });
+    }
+    if ((req.files || []).length > 0) {
+      await school.save();
+    }
+
     res.status(201).json({
-      message: "School created",
+      message: isDeveloperOnboarding
+        ? "School created by developer onboarding"
+        : "School registration submitted for review",
       schoolId: school._id,
+      registrationStatus: school.registrationStatus,
       allowedEmailDomains: school.allowedEmailDomains,
+      officialDocumentCount: school.officialDocuments.length,
       schoolAdmin: schoolAdmin
         ? {
             _id: schoolAdmin._id.toString(),
@@ -156,11 +223,31 @@ export const createSchool = async (req, res) => {
         subscriptionTermLabel: selectedTerm.label,
         startedAt: subscriptionStartedAt.toISOString(),
         expiryDate: subscriptionExpiresAt?.toISOString() || null,
-        isActive: true,
+        isActive: subscriptionActive,
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    await Promise.all(
+      uploadedStoragePaths.map((storagePath) =>
+        deleteOfficialSchoolDocument(storagePath).catch(() => null)
+      )
+    );
+    if (schoolAdmin?._id) {
+      await SchoolAdmin.deleteOne({ _id: schoolAdmin._id }).catch(() => null);
+    }
+    if (school?._id) {
+      await School.deleteOne({ _id: school._id }).catch(() => null);
+    }
+
+    const isDocumentError =
+      /document|image|dimension|pixel|format|encryption key/i.test(
+        err.message || ""
+      );
+    return sendError(
+      res,
+      isDocumentError ? 400 : 500,
+      isDocumentError ? err.message : err.message || "Failed to create school"
+    );
   }
 };
 
@@ -250,7 +337,12 @@ export const updateSchoolSubscription = async (req, res) => {
 
 export const getAllSchools = async (req, res) => {
   try {
-    const schools = await School.find({}).select(
+    const schools = await School.find({
+      $or: [
+        { registrationStatus: "approved" },
+        { registrationStatus: { $exists: false } },
+      ],
+    }).select(
       "fullName shortName logoUrl name allowedEmailDomains"
     );
 
@@ -270,7 +362,13 @@ export const getAllSchools = async (req, res) => {
 
 export const getFacultiesBySchool = async (req, res) => {
   try {
-    const school = await School.findById(req.params.schoolId).select("faculties");
+    const school = await School.findOne({
+      _id: req.params.schoolId,
+      $or: [
+        { registrationStatus: "approved" },
+        { registrationStatus: { $exists: false } },
+      ],
+    }).select("faculties");
 
     if (!school) {
       return sendError(res, 404, "School not found");
@@ -289,7 +387,13 @@ export const getFacultiesBySchool = async (req, res) => {
 
 export const getProgrammesByFaculty = async (req, res) => {
   try {
-    const school = await School.findById(req.params.schoolId).select("faculties");
+    const school = await School.findOne({
+      _id: req.params.schoolId,
+      $or: [
+        { registrationStatus: "approved" },
+        { registrationStatus: { $exists: false } },
+      ],
+    }).select("faculties");
 
     if (!school) {
       return sendError(res, 404, "School not found");

@@ -2,11 +2,11 @@ import Election from "../models/Election.js";
 import Notification from "../models/Notification.js";
 import Student from "../models/Student.js";
 import Vote from "../models/Vote.js";
-import Voter from "../models/Voter.js";
 import { emitNotification } from "./liveMonitorSocket.js";
 import { canDeliverNotification } from "./notificationPreferences.js";
 import { sendPushNotificationToDevices } from "./pushDelivery.js";
 import { EC_ROLE, ecRoleQuery } from "./ecRole.js";
+import { buildAudienceStudentQuery } from "./electionAudience.js";
 
 const isPushDebugEnabled = () =>
   String(process.env.PUSH_DEBUG || process.env.SOCKET_DEBUG || "").toLowerCase() === "true";
@@ -243,27 +243,11 @@ export const notifySchoolAdmins = async ({
 };
 
 export const getEligibleStudentObjectIdsForElection = async (election) => {
-  const embeddedStudentIds = (election.eligibleVoters || [])
-    .map((voter) => String(voter.studentId || "").trim())
-    .filter(Boolean);
-  const uploadedVoterRows = await Voter.find({
-    electionId: election._id,
-    schoolId: election.schoolId,
-  }).select("studentId");
-  const uploadedStudentIds = uploadedVoterRows
-    .map((voter) => String(voter.studentId || "").trim())
-    .filter(Boolean);
-  const studentIds = Array.from(new Set([...embeddedStudentIds, ...uploadedStudentIds]));
-
-  if (studentIds.length === 0) {
+  const query = buildAudienceStudentQuery(election);
+  if (!query) {
     return [];
   }
-
-  const students = await Student.find({
-    schoolId: election.schoolId,
-    studentId: { $in: studentIds },
-  }).select("_id");
-
+  const students = await Student.find(query).select("_id");
   return students.map((student) => student._id.toString());
 };
 
@@ -333,10 +317,10 @@ export const maybeNotifyTurnoutMilestone = async (electionInput) => {
     return false;
   }
 
-  const eligibleCount =
-    (await Voter.countDocuments({ electionId: election._id, schoolId: election.schoolId })) ||
-    election.eligibleVoters?.length ||
-    0;
+  const audienceQuery = buildAudienceStudentQuery(election);
+  const eligibleCount = audienceQuery
+    ? await Student.countDocuments(audienceQuery)
+    : 0;
 
   if (eligibleCount <= 0) {
     return false;

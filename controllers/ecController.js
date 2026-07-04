@@ -16,6 +16,10 @@ export const listECMembers = async (req, res) => {
   const { schoolId } = req.params;
 
   try {
+    if (req.schoolId && req.schoolId.toString() !== schoolId?.toString()) {
+      return res.status(403).json({ error: "You are not allowed to access this school" });
+    }
+
     const school = await School.findById(schoolId).select("_id");
     if (!school) return res.status(404).json({ error: "School not found" });
 

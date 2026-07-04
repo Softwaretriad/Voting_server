@@ -1,4 +1,5 @@
 import School from "../models/school.js";
+import SchoolStudentRecord from "../models/SchoolStudentRecord.js";
 import Student from "../models/Student.js";
 import sendEmail from "../utils/sendEmail.js";
 import { sendError, sanitizeStudent } from "../utils/apiResponse.js";
@@ -28,6 +29,7 @@ import {
   notifyStudent,
 } from "../utils/notificationService.js";
 import { EC_ROLE, ecRoleQuery, isEcAccountRole, isEcRole } from "../utils/ecRole.js";
+import { verifyGoogleIdToken } from "../utils/googleAuth.js";
 
 const getEcFirstName = (account) => account?.firstName || account?.firstname || "";
 
@@ -44,6 +46,60 @@ const sanitizeEcUser = (ecUser) => ({
   email: ecUser.email,
   schoolId: ecUser.schoolId,
 });
+
+const createImportedAccountPassword = () => `oauth-only-${createOpaqueToken()}`;
+
+const findApprovedSchoolForEmail = async (email) => {
+  const schools = await School.find({
+    $and: [
+      { allowedEmailDomains: { $exists: true, $ne: [] } },
+      {
+        $or: [
+          { registrationStatus: "approved" },
+          { registrationStatus: { $exists: false } },
+        ],
+      },
+    ],
+  }).select("allowedEmailDomains");
+
+  return schools.find((school) =>
+    emailMatchesAllowedDomains(email, school.allowedEmailDomains)
+  );
+};
+
+const issueRoleAwareSession = async (req, student, actionPrefix) => {
+  if (isEcAccountRole(student.accountRole)) {
+    if (student.accountRole !== EC_ROLE) {
+      student.accountRole = EC_ROLE;
+    }
+    const session = await issueEcSession(student);
+    await recordActivity({
+      actorType: EC_ROLE,
+      actorId: student._id,
+      schoolId: student.schoolId,
+      action: `${actionPrefix} EC Login Success`,
+    });
+    return {
+      statusCode: 200,
+      body: session,
+    };
+  }
+
+  const session = await issueSession(req, student);
+  await recordActivity({
+    actorType: "student",
+    actorId: student._id,
+    schoolId: student.schoolId,
+    action: `${actionPrefix} Student Login Success`,
+  });
+  return {
+    statusCode: 200,
+    body: {
+      ...session,
+      role: "student",
+    },
+  };
+};
 
 const findEcPrincipalById = async (userId, sessionVersion = null) => {
   const filter = {
@@ -132,7 +188,17 @@ const resolveSchoolSelection = async ({
   email,
 }) => {
   const school = await School.findOne({
-    $or: [{ fullName: universityFullName }, { name: universityFullName }],
+    $and: [
+      {
+        $or: [{ fullName: universityFullName }, { name: universityFullName }],
+      },
+      {
+        $or: [
+          { registrationStatus: "approved" },
+          { registrationStatus: { $exists: false } },
+        ],
+      },
+    ],
   });
 
   if (!school) {
@@ -164,6 +230,10 @@ const resolveSchoolSelection = async ({
 
 export const registerStudent = async (req, res) => {
   try {
+    if (process.env.MANUAL_STUDENT_REGISTRATION_ENABLED === "false") {
+      return sendError(res, 403, "Manual student registration is disabled");
+    }
+
     const {
       studentId,
       firstName,
@@ -176,7 +246,6 @@ export const registerStudent = async (req, res) => {
       department,
       currentYearOfStudy,
       programOfStudy,
-      votingPin,
     } = req.body;
 
     const normalizedEmail = normalizeEmail(email);
@@ -191,8 +260,7 @@ export const registerStudent = async (req, res) => {
       !phone ||
       !universityFullName ||
       !department ||
-      !programOfStudy ||
-      votingPin == null
+      !programOfStudy
     ) {
       return sendError(res, 400, "All required registration fields must be provided");
     }
@@ -201,7 +269,7 @@ export const registerStudent = async (req, res) => {
       return sendError(res, 400, strongPasswordMessage);
     }
 
-    if (!isFourDigitPin(votingPin)) {
+    if (req.body.votingPin != null && !isFourDigitPin(req.body.votingPin)) {
       return sendError(res, 400, "Voting PIN must be a 4-digit integer");
     }
 
@@ -237,7 +305,7 @@ export const registerStudent = async (req, res) => {
           ? null
           : Number(currentYearOfStudy),
       programOfStudy,
-      votingPin: String(votingPin),
+      votingPin: req.body.votingPin == null ? null : String(req.body.votingPin),
     });
 
     const { otp, expiresAt } = await sendVerificationOtp(student);
@@ -418,6 +486,108 @@ export const loginStudent = async (req, res) => {
     return sendError(res, 401, "Invalid email or password");
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to login");
+  }
+};
+
+export const loginWithGoogle = async (req, res) => {
+  try {
+    const { idToken } = req.body || {};
+    if (!idToken) {
+      return sendError(res, 400, "idToken is required");
+    }
+
+    const googleProfile = await verifyGoogleIdToken(idToken);
+    const normalizedEmail = normalizeEmail(googleProfile.email);
+
+    const googleLinkedStudent = await Student.findOne({ googleSub: googleProfile.sub });
+    if (
+      googleLinkedStudent &&
+      normalizeEmail(googleLinkedStudent.email) !== normalizedEmail
+    ) {
+      return sendError(res, 409, "This Google account is already linked to another student");
+    }
+
+    let student = googleLinkedStudent || (await Student.findOne({ email: normalizedEmail }));
+    if (student?.googleSub && student.googleSub !== googleProfile.sub) {
+      return sendError(res, 409, "This student account is already linked to another Google account");
+    }
+
+    if (!student) {
+      const school = await findApprovedSchoolForEmail(normalizedEmail);
+      if (!school) {
+        return sendError(res, 403, "Email does not match an approved school domain");
+      }
+
+      const importedRecord = await SchoolStudentRecord.findOne({
+        schoolId: school._id,
+        email: normalizedEmail,
+      });
+      if (!importedRecord) {
+        return sendError(res, 403, "Student record has not been imported by this school");
+      }
+      if (
+        !["male", "female"].includes(importedRecord.gender) ||
+        !importedRecord.phone ||
+        !importedRecord.programmeOfStudy
+      ) {
+        return sendError(
+          res,
+          409,
+          "Student record is incomplete. Ask the school to re-import the complete student register."
+        );
+      }
+
+      student = await Student.create({
+        studentId: importedRecord.studentId,
+        firstName: importedRecord.firstName || googleProfile.firstName || googleProfile.name,
+        lastName: importedRecord.lastName || googleProfile.lastName || "",
+        gender: importedRecord.gender,
+        email: normalizedEmail,
+        password: createImportedAccountPassword(),
+        passwordLoginEnabled: false,
+        phone: importedRecord.phone,
+        schoolId: school._id,
+        universityFullName: school.fullName || school.name,
+        department: importedRecord.faculty,
+        currentYearOfStudy: importedRecord.currentYearOfStudy || null,
+        programOfStudy: importedRecord.programmeOfStudy,
+        nationality: importedRecord.nationality || "",
+        votingPin: null,
+        isEmailVerified: true,
+        authProvider: "google",
+        googleSub: googleProfile.sub,
+        googleLinkedAt: new Date(),
+      });
+    } else {
+      const school = student.schoolId
+        ? await School.findById(student.schoolId).select("allowedEmailDomains")
+        : await findApprovedSchoolForEmail(normalizedEmail);
+
+      if (!school || !emailMatchesAllowedDomains(normalizedEmail, school.allowedEmailDomains)) {
+        return sendError(res, 403, "Email does not match this student's school domain");
+      }
+
+      student.googleSub = googleProfile.sub;
+      student.googleLinkedAt = student.googleLinkedAt || new Date();
+      student.authProvider =
+        student.authProvider === "password" && student.passwordLoginEnabled !== false
+          ? "password"
+          : "google";
+      student.isEmailVerified = true;
+      if (!student.schoolId) {
+        student.schoolId = school._id;
+      }
+      await student.save();
+    }
+
+    const session = await issueRoleAwareSession(req, student, "Google");
+    return res.status(session.statusCode).json(session.body);
+  } catch (error) {
+    return sendError(
+      res,
+      error.statusCode || 401,
+      error.message || "Failed to sign in with Google"
+    );
   }
 };
 

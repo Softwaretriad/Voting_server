@@ -30,6 +30,34 @@
       "value": ""
     },
     {
+      "key": "schoolReviewToken",
+      "value": ""
+    },
+    {
+      "key": "superAdminBootstrapToken",
+      "value": ""
+    },
+    {
+      "key": "superAdminEmail",
+      "value": "platform.admin@myunivote.com"
+    },
+    {
+      "key": "superAdminPassword",
+      "value": "SuperAdmin123$"
+    },
+    {
+      "key": "superAdminAccessToken",
+      "value": ""
+    },
+    {
+      "key": "superAdminRefreshToken",
+      "value": ""
+    },
+    {
+      "key": "officialDocumentId",
+      "value": ""
+    },
+    {
       "key": "schoolId",
       "value": ""
     },
@@ -74,14 +102,18 @@
       "value": "David123$"
     },
     {
+      "key": "googleIdToken",
+      "value": ""
+    },
+    {
       "key": "studentVotingPin",
       "value": "1234"
-    }, 
+    },
     {
       "key": "ecEmail",
       "value": "10420742@wiuc-ghana.edu.gh"
     },
-    { 
+    {
       "key": "ecPassword",
       "value": "Nwanna123$"
     },
@@ -156,6 +188,14 @@
     {
       "key": "reviewEcPassword",
       "value": "Review@123"
+    },
+    {
+      "key": "publicLeadRequestId",
+      "value": ""
+    },
+    {
+      "key": "planUpdateRequestId",
+      "value": ""
     }
   ],
   "item": [
@@ -288,7 +328,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"studentId\": \"UG-10001\",\n  \"firstName\": \"David\",\n  \"lastName\": \"Mensah\",\n  \"gender\": \"male\",\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\",\n  \"phone\": \"+233240000000\",\n  \"universityFullName\": \"University of Ghana\",\n  \"department\": \"Faculty of Engineering\",\n  \"currentYearOfStudy\": 3,\n  \"programOfStudy\": \"BSc Computer Science\",\n  \"votingPin\": 1234\n}"
+              "raw": "{\n  \"studentId\": \"UG-10001\",\n  \"firstName\": \"David\",\n  \"lastName\": \"Mensah\",\n  \"gender\": \"male\",\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\",\n  \"phone\": \"+233240000000\",\n  \"universityFullName\": \"University of Ghana\",\n  \"department\": \"Faculty of Engineering\",\n  \"currentYearOfStudy\": 3,\n  \"programOfStudy\": \"BSc Computer Science\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/register",
@@ -464,6 +504,59 @@
               ]
             }
           }
+        },
+        {
+          "name": "Login With Google",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"{{googleIdToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/google",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "google"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) pm.collectionVariables.set('accessToken', data.accessToken);",
+                  "if (data.refreshToken) pm.collectionVariables.set('refreshToken', data.refreshToken);",
+                  "if (data.user && data.user.id) pm.collectionVariables.set('userId', data.user.id);",
+                  "if (data.user && data.user.schoolId) pm.collectionVariables.set('schoolId', data.user.schoolId);",
+                  "if (data.role === 'ec') {",
+                  "  const ecToken = data.token || data.accessToken || '';",
+                  "  if (ecToken) pm.collectionVariables.set('ecToken', ecToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set('ecUserId', data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Forgot Password",
@@ -1001,6 +1094,41 @@
       "name": "Voting",
       "item": [
         {
+          "name": "Create Voting PIN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newPin\": {{studentVotingPin}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/votes/pin/set",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "votes",
+                "pin",
+                "set"
+              ]
+            }
+          }
+        },
+        {
           "name": "Verify Voting PIN",
           "request": {
             "method": "POST",
@@ -1364,7 +1492,7 @@
                 "{{baseUrl}}"
               ],
               "path": [
-                  "ec",
+                "ec",
                 "dashboard",
                 "{{schoolId}}"
               ]
@@ -1391,7 +1519,7 @@
                 "{{baseUrl}}"
               ],
               "path": [
-                  "ec",
+                "ec",
                 "monitor",
                 "elections",
                 "{{electionId}}"
@@ -1726,8 +1854,621 @@
       ]
     },
     {
+      "name": "Super Admin",
+      "item": [
+        {
+          "name": "Bootstrap Super Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Super-Admin-Bootstrap-Token",
+                "value": "{{superAdminBootstrapToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Platform\",\n  \"lastName\": \"Admin\",\n  \"email\": \"{{superAdminEmail}}\",\n  \"password\": \"{{superAdminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/auth/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "auth",
+                "bootstrap"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login Super Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{superAdminEmail}}\",\n  \"password\": \"{{superAdminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "pm.test('Super admin tokens returned', function () {",
+                  "  pm.expect(data.accessToken, 'accessToken').to.be.a('string').and.not.empty;",
+                  "  pm.expect(data.refreshToken, 'refreshToken').to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('superAdminAccessToken', data.accessToken);",
+                  "pm.collectionVariables.set('superAdminRefreshToken', data.refreshToken);",
+                  "if (data.user && data.user.email) pm.collectionVariables.set('superAdminEmail', data.user.email);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Super Admin Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Refresh Super Admin Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{superAdminRefreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "auth",
+                "refresh"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) pm.collectionVariables.set('superAdminAccessToken', data.accessToken);",
+                  "if (data.refreshToken) pm.collectionVariables.set('superAdminRefreshToken', data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Pending School Registrations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/internal/school-registrations?status=pending",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "school-registrations"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (Array.isArray(data) && data.length > 0) {",
+                  "  pm.collectionVariables.set('schoolId', data[0].schoolId);",
+                  "  if (Array.isArray(data[0].officialDocuments) && data[0].officialDocuments[0]) {",
+                  "    pm.collectionVariables.set('officialDocumentId', data[0].officialDocuments[0].id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decrypt School Registration Document",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "image/*"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/internal/school-registrations/{{schoolId}}/documents/{{officialDocumentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "school-registrations",
+                "{{schoolId}}",
+                "documents",
+                "{{officialDocumentId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Approve School Registration",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/internal/school-registrations/{{schoolId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "school-registrations",
+                "{{schoolId}}",
+                "approve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reject School Registration",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"The submitted document could not be verified.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/internal/school-registrations/{{schoolId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "school-registrations",
+                "{{schoolId}}",
+                "reject"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Assign School Plan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"free\",\n  \"subscriptionTerm\": \"4_months\",\n  \"subscriptionStartedAt\": \"2026-04-12T00:00:00.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/schools/{{schoolId}}/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "schools",
+                "{{schoolId}}",
+                "plan"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Plan Update Requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/plan-update-requests?status=pending_review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "plan-update-requests"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending_review"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (Array.isArray(data) && data.length > 0 && data[0].requestId) {",
+                  "  pm.collectionVariables.set('planUpdateRequestId', data[0].requestId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review Plan Update Request",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"reviewNote\": \"Approved by platform admin.\",\n  \"applyPlan\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/plan-update-requests/{{planUpdateRequestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "plan-update-requests",
+                "{{planUpdateRequestId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Demo Public Leads",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/public-leads?type=demo&status=received",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "public-leads"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "demo"
+                },
+                {
+                  "key": "status",
+                  "value": "received"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (Array.isArray(data) && data.length > 0 && data[0].requestId) {",
+                  "  pm.collectionVariables.set('publicLeadRequestId', data[0].requestId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Public Lead Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superAdminAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"reviewing\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/public-leads/{{publicLeadRequestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "public-leads",
+                "{{publicLeadRequestId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Logout Super Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{superAdminRefreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/super-admin/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "super-admin",
+                "auth",
+                "logout"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "School Admin Auth",
       "item": [
+        {
+          "name": "Create School With Official Documents",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-School-Review-Token",
+                "value": "{{schoolReviewToken}}",
+                "disabled": true,
+                "description": "Enable only for developer-led onboarding where officialDocuments may be omitted."
+              },
+              {
+                "key": "X-Reviewer-Name",
+                "value": "developer-onboarding",
+                "disabled": true
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "payload",
+                  "value": "{\"name\":\"Wisconsin\",\"fullName\":\"Wisconsin International University College\",\"shortName\":\"WIUC\",\"email\":\"school@example.edu\",\"allowedEmailDomains\":[\"wiuc-ghana.edu.gh\"],\"plan\":\"free\",\"subscriptionTerm\":\"4_months\",\"admin\":{\"firstName\":\"Ama\",\"lastName\":\"Mensah\",\"email\":\"school.admin@example.edu\",\"password\":\"StrongPass123$\"},\"faculties\":[]}",
+                  "type": "text"
+                },
+                {
+                  "key": "officialDocuments",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/schools/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "schools",
+                "register"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.schoolId) pm.collectionVariables.set('schoolId', data.schoolId);",
+                  "if (data.schoolAdmin && data.schoolAdmin.email) pm.collectionVariables.set('schoolAdminEmail', data.schoolAdmin.email);"
+                ]
+              }
+            }
+          ]
+        },
         {
           "name": "Login School Admin",
           "request": {
@@ -1920,15 +2661,15 @@
           "name": "Update School Subscription",
           "request": {
             "method": "PATCH",
-        "header": [
-          {
-            "key": "X-CSRF-Token",
-            "value": "{{schoolAdminCsrfToken}}"
-          },
-          {
-            "key": "Origin",
-            "value": "{{schoolWebsiteOrigin}}"
-          },
+            "header": [
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{schoolAdminCsrfToken}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{schoolWebsiteOrigin}}"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -1964,17 +2705,17 @@
           "name": "Promote Student EC Members",
           "request": {
             "method": "POST",
-        "header": [
-          {
-            "key": "X-CSRF-Token",
-            "value": "{{schoolAdminCsrfToken}}"
-          },
-          {
-            "key": "Origin",
-            "value": "{{schoolWebsiteOrigin}}"
-          },
-          {
-            "key": "Content-Type",
+            "header": [
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{schoolAdminCsrfToken}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{schoolWebsiteOrigin}}"
+              },
+              {
+                "key": "Content-Type",
                 "value": "application/json"
               },
               {
@@ -2413,7 +3154,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"SRC General Election\",\n  \"imageUrl\": \"{{uploadedElectionImageUrl}}\",\n  \"startDate\": \"2026-05-01T09:00:00.000Z\",\n  \"endDate\": \"2026-05-02T17:00:00.000Z\",\n  \"categories\": [\"SRC President\", \"General Secretary\"],\n  \"status\": \"draft\",\n  \"voterListUrl\": \"students_registry.xlsx\",\n  \"aspirantListUrl\": \"aspirants_registry.xlsx\",\n  \"voters\": [\n    {\n      \"name\": \"Ama Mensah\",\n      \"studentId\": \"UG001\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\"\n    },\n    {\n      \"name\": \"Kojo Owusu\",\n      \"studentId\": \"UG002\",\n      \"programmeOfStudy\": \"BA Economics\",\n      \"level\": \"200\",\n      \"faculty\": \"Business\"\n    }\n  ],\n  \"aspirants\": [\n    {\n      \"name\": \"Esi Boateng\",\n      \"studentId\": \"UG010\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\",\n      \"electoralCategory\": \"SRC President\"\n    },\n    {\n      \"name\": \"Yaw Asare\",\n      \"studentId\": \"UG011\",\n      \"programmeOfStudy\": \"BA Political Science\",\n      \"level\": \"400\",\n      \"faculty\": \"Social Sciences\",\n      \"electoralCategory\": \"General Secretary\"\n    }\n  ]\n}"
+              "raw": "{\n  \"title\": \"SRC General Election\",\n  \"imageUrl\": \"{{uploadedElectionImageUrl}}\",\n  \"startDate\": \"2026-05-01T09:00:00.000Z\",\n  \"endDate\": \"2026-05-02T17:00:00.000Z\",\n  \"categories\": [\"SRC President\", \"General Secretary\"],\n  \"status\": \"draft\",\n  \"audience\": {\n    \"scope\": \"all_students\"\n  },\n  \"aspirantListUrl\": \"aspirants_registry.xlsx\",\n  \"aspirants\": [\n    {\n      \"name\": \"Esi Boateng\",\n      \"studentId\": \"UG010\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\",\n      \"electoralCategory\": \"SRC President\"\n    },\n    {\n      \"name\": \"Yaw Asare\",\n      \"studentId\": \"UG011\",\n      \"programmeOfStudy\": \"BA Political Science\",\n      \"level\": \"400\",\n      \"faculty\": \"Social Sciences\",\n      \"electoralCategory\": \"General Secretary\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/ec/elections",
