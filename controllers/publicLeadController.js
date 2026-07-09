@@ -13,10 +13,7 @@ export const createDemoRequest = async (req, res) => {
       positionRole,
       emailAddress,
       phoneNumber,
-      estimatedStudentPopulation,
-      expectedElectionPeriod,
       conductedDigitalElectionsBefore,
-      additionalInformation,
       preferredMeetingDate,
       preferredMeetingTime,
     } = req.body || {};
@@ -37,13 +34,10 @@ export const createDemoRequest = async (req, res) => {
       positionRole,
       email: normalizeEmail(emailAddress),
       phoneNumber,
-      estimatedStudentPopulation,
-      expectedElectionPeriod,
       conductedDigitalElectionsBefore:
         typeof conductedDigitalElectionsBefore === "boolean"
           ? conductedDigitalElectionsBefore
           : null,
-      additionalInformation,
       preferredMeetingDate,
       preferredMeetingTime,
     });
@@ -145,14 +139,11 @@ export const listPublicLeadRequestsForSuperAdmin = async (req, res) => {
         email: request.email,
         phoneNumber: request.phoneNumber,
         populationBand: request.populationBand,
-        estimatedStudentPopulation: request.estimatedStudentPopulation,
         electionPackage: request.electionPackage,
-        expectedElectionPeriod: request.expectedElectionPeriod,
         conductedDigitalElectionsBefore: request.conductedDigitalElectionsBefore,
         preferredMeetingDate: request.preferredMeetingDate,
         preferredMeetingTime: request.preferredMeetingTime,
         message: request.message,
-        additionalInformation: request.additionalInformation,
         createdAt: request.createdAt.toISOString(),
         updatedAt: request.updatedAt.toISOString(),
       }))

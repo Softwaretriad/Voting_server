@@ -14,6 +14,10 @@ export const securityHeaders = (req, res, next) => {
 };
 
 export const enforceHttps = (req, res, next) => {
+  if (req.method === "OPTIONS") {
+    return next();
+  }
+
   const shouldEnforce =
     process.env.NODE_ENV === "production" &&
     process.env.ENFORCE_HTTPS === "true";
@@ -31,8 +35,21 @@ export const corsMiddleware = (req, res, next) => {
     .map((value) => value.trim())
     .filter(Boolean);
   const origin = req.headers.origin;
+  const requestedHeaders = String(
+    req.headers["access-control-request-headers"] || ""
+  ).trim();
+  const allowedHeaders =
+    requestedHeaders ||
+    "Content-Type, Accept, Authorization, X-Requested-With, X-CSRF-Token";
+  const allowedMethods = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
 
   if (!origin) {
+    if (req.method === "OPTIONS") {
+      res.setHeader("Allow", allowedMethods);
+      res.setHeader("Access-Control-Allow-Methods", allowedMethods);
+      res.setHeader("Access-Control-Allow-Headers", allowedHeaders);
+      return res.status(204).end();
+    }
     return next();
   }
 
@@ -40,15 +57,17 @@ export const corsMiddleware = (req, res, next) => {
   if (allowAll || allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Accept, Authorization, X-Requested-With, X-CSRF-Token"
-    );
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", allowedHeaders);
+    res.setHeader("Access-Control-Allow-Methods", allowedMethods);
     res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Max-Age", "600");
     if (req.method === "OPTIONS") {
       return res.status(204).end();
     }
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
   }
 
   return next();

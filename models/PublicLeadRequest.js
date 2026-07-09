@@ -37,14 +37,11 @@ const PublicLeadRequestSchema = new mongoose.Schema(
     },
     phoneNumber: { type: String, trim: true, default: "" },
     populationBand: { type: String, trim: true, default: "" },
-    estimatedStudentPopulation: { type: String, trim: true, default: "" },
     electionPackage: { type: String, trim: true, default: "" },
-    expectedElectionPeriod: { type: String, trim: true, default: "" },
     conductedDigitalElectionsBefore: { type: Boolean, default: null },
     preferredMeetingDate: { type: String, trim: true, default: "" },
     preferredMeetingTime: { type: String, trim: true, default: "" },
     message: { type: String, trim: true, default: "" },
-    additionalInformation: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );

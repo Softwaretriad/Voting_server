@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import readXlsxFile from "read-excel-file/node";
+import { readSheet } from "read-excel-file/node";
 import PlanUpdateRequest from "../models/PlanUpdateRequest.js";
 import School from "../models/school.js";
 import SchoolStudentRecord from "../models/SchoolStudentRecord.js";
@@ -121,7 +121,7 @@ const parseCsv = (buffer) => {
 };
 
 const parseSpreadsheet = async (buffer) => {
-  const matrix = await readXlsxFile(buffer);
+  const matrix = await readSheet(buffer);
   if (matrix.length === 0) {
     return { headers: [], rows: [] };
   }
@@ -364,12 +364,16 @@ export const getAssignedPlan = async (req, res) => {
       plan: school.plan,
       planName: selectedPlan.name,
       populationRangeLabel: selectedPlan.studentRange,
+      studentRange: selectedPlan.studentRange,
       voteLimit: selectedPlan.maxVoters,
       subscriptionTerm: school.subscriptionTerm,
       subscriptionTermLabel: selectedTerm.label,
       activationStatus: school.subscriptionActive ? "active" : "inactive",
+      isActive: school.subscriptionActive,
       renewalDate: school.subscriptionExpiresAt?.toISOString() || null,
+      expiryDate: school.subscriptionExpiresAt?.toISOString() || null,
       registeredStudentCount,
+      currentPopulation: registeredStudentCount,
       commercialMode: "private_contract",
     });
   } catch (error) {
@@ -570,20 +574,38 @@ export const importStudentRegister = async (req, res) => {
     importRecord.skippedRows = skippedRows.slice(0, 100);
     await importRecord.save();
 
+    const [studentCount, facultyCoverage] = await Promise.all([
+      SchoolStudentRecord.countDocuments({ schoolId }),
+      SchoolStudentRecord.distinct("faculty", { schoolId }).then(
+        (faculties) => faculties.length
+      ),
+    ]);
+
     return res.status(201).json({
       importId: importRecord._id.toString(),
       schoolId,
       fileName,
+      uploadedAt: importRecord.createdAt.toISOString(),
       rowsProcessed: importRecord.rowsProcessed,
       rowsImported,
       studentAccountsUpserted,
       rowsSkipped: skippedRows.length,
+      studentCount,
+      facultyCount: facultyCoverage,
+      facultyCoverage,
       requiredColumnsValidated: true,
-      importedAt: importRecord.createdAt.toISOString(),
       skippedRows: importRecord.skippedRows,
     });
   } catch (error) {
-    return sendError(res, 500, error.message || "Failed to import student register");
+    const statusCode =
+      Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode < 500
+        ? error.statusCode
+        : 500;
+    return sendError(
+      res,
+      statusCode,
+      error.message || "Failed to import student register"
+    );
   }
 };
 
@@ -610,6 +632,7 @@ export const getLatestStudentRegisterImport = async (req, res) => {
       uploadedAt: latestImport.createdAt.toISOString(),
       studentCount,
       facultyCount,
+      facultyCoverage: facultyCount,
       rowsProcessed: latestImport.rowsProcessed,
       rowsImported: latestImport.rowsImported,
       studentAccountsUpserted: latestImport.studentAccountsUpserted || latestImport.rowsImported,

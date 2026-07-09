@@ -1,5 +1,6 @@
 import express from "express";
 import {
+  getSchoolAdminBootstrap,
   getSchoolAdminMe,
   loginSchoolAdmin,
   logoutSchoolAdmin,
@@ -28,5 +29,6 @@ router.post(
 );
 router.post("/auth/logout", requireSchoolAdminCsrf, logoutSchoolAdmin);
 router.get("/me", protectSchoolAdmin, getSchoolAdminMe);
+router.get("/bootstrap", protectSchoolAdmin, getSchoolAdminBootstrap);
 
 export default router;

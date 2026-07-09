@@ -26,17 +26,38 @@ export const listECMembers = async (req, res) => {
     const studentAdmins = await Student.find({
       schoolId,
       accountRole: ecRoleQuery(),
-    }).select("studentId firstName lastName email schoolId createdAt updatedAt ecAssignedAt");
+    }).select(
+      "studentId firstName lastName email department nationality schoolId accountRole createdAt updatedAt ecAssignedAt"
+    );
 
     return res.json({
       maxEcMembersPerSchool: MAX_EC_MEMBERS_PER_SCHOOL,
       totalEcMembers: studentAdmins.length,
-      members: studentAdmins.map((student) => ({
-        _id: student._id,
+      assignedEcMembers: studentAdmins.map((student) => ({
+        id: student._id.toString(),
+        _id: student._id.toString(),
         studentId: student.studentId,
+        firstName: student.firstName,
+        lastName: student.lastName,
         name: `${student.firstName || ""} ${student.lastName || ""}`.trim(),
         email: student.email,
+        faculty: student.department || "",
+        nationality: student.nationality || "",
+        accountRole: student.accountRole,
+        ecAssignedAt: student.ecAssignedAt,
+      })),
+      members: studentAdmins.map((student) => ({
+        id: student._id.toString(),
+        _id: student._id,
+        studentId: student.studentId,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        name: `${student.firstName || ""} ${student.lastName || ""}`.trim(),
+        email: student.email,
+        faculty: student.department || "",
+        nationality: student.nationality || "",
         schoolId: student.schoolId,
+        accountRole: student.accountRole,
         accountType: "student_ec",
         ecAssignedAt: student.ecAssignedAt,
         createdAt: student.createdAt,

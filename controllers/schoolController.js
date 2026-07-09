@@ -181,19 +181,22 @@ export const createSchool = async (req, res) => {
       }
     }
 
-    for (const file of req.files || []) {
-      const documentId = new mongoose.Types.ObjectId();
-      const document = await encryptAndUploadOfficialSchoolDocument({
-        schoolId: school._id.toString(),
-        documentId: documentId.toString(),
-        file,
-      });
-      uploadedStoragePaths.push(document.storagePath);
-      school.officialDocuments.push({
-        _id: documentId,
-        ...document,
-      });
-    }
+    const officialDocuments = await Promise.all(
+      (req.files || []).map(async (file) => {
+        const documentId = new mongoose.Types.ObjectId();
+        const document = await encryptAndUploadOfficialSchoolDocument({
+          schoolId: school._id.toString(),
+          documentId: documentId.toString(),
+          file,
+        });
+        uploadedStoragePaths.push(document.storagePath);
+        return {
+          _id: documentId,
+          ...document,
+        };
+      })
+    );
+    school.officialDocuments.push(...officialDocuments);
     if ((req.files || []).length > 0) {
       await school.save();
     }
@@ -203,6 +206,7 @@ export const createSchool = async (req, res) => {
         ? "School created by developer onboarding"
         : "School registration submitted for review",
       schoolId: school._id,
+      logoUrl: resolveLogoUrl(req, school.logoUrl),
       registrationStatus: school.registrationStatus,
       allowedEmailDomains: school.allowedEmailDomains,
       officialDocumentCount: school.officialDocuments.length,

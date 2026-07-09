@@ -1,6 +1,16 @@
 import School from "../models/school.js";
 import SchoolAdmin from "../models/SchoolAdmin.js";
+import SchoolStudentRecord from "../models/SchoolStudentRecord.js";
+import Student from "../models/Student.js";
+import StudentRegisterImport from "../models/StudentRegisterImport.js";
 import { sendError } from "../utils/apiResponse.js";
+import { ecRoleQuery } from "../utils/ecRole.js";
+import { resolveLogoUrl } from "../utils/logoUrl.js";
+import {
+  getPlanConfig,
+  getSubscriptionTermConfig,
+  syncSchoolSubscriptionState,
+} from "../utils/plans.js";
 import {
   compareSecret,
   hashSecret,
@@ -28,12 +38,131 @@ const getRefreshCookieMaxAgeMs = () =>
 
 const sanitizeSchoolAdmin = (admin) => ({
   _id: admin._id.toString(),
+  id: admin._id.toString(),
   schoolId: admin.schoolId?.toString?.() || admin.schoolId,
   firstName: admin.firstName,
   lastName: admin.lastName,
   email: admin.email,
+  accountRole: SCHOOL_ADMIN_ROLE,
   role: SCHOOL_ADMIN_ROLE,
 });
+
+const formatSchoolSession = (req, school) =>
+  school
+    ? {
+        _id: school._id.toString(),
+        schoolId: school._id.toString(),
+        name: school.name,
+        fullName: school.fullName || school.name,
+        shortName: school.shortName || "",
+        supportEmail: school.email || "",
+        email: school.email || "",
+        logoUrl: req ? resolveLogoUrl(req, school.logoUrl) : school.logoUrl || "",
+        plan: school.plan,
+        subscriptionActive: school.subscriptionActive,
+        subscriptionTerm: school.subscriptionTerm,
+        subscriptionExpiresAt: school.subscriptionExpiresAt?.toISOString() || null,
+      }
+    : null;
+
+const buildSchoolAdminBootstrap = async (req, schoolAdmin) => {
+  const schoolId = schoolAdmin.schoolId;
+  const [school, latestImport, currentPopulation, facultyCoverage, ecMembers] =
+    await Promise.all([
+      School.findById(schoolId),
+      StudentRegisterImport.findOne({ schoolId }).sort({ createdAt: -1 }),
+      Student.countDocuments({ schoolId }),
+      SchoolStudentRecord.distinct("faculty", { schoolId }).then(
+        (faculties) => faculties.filter(Boolean).length
+      ),
+      Student.find({ schoolId, accountRole: ecRoleQuery() })
+        .select("studentId firstName lastName email department nationality accountRole ecAssignedAt")
+        .sort({ ecAssignedAt: -1, lastName: 1, firstName: 1 }),
+    ]);
+
+  if (!school) {
+    return null;
+  }
+
+  syncSchoolSubscriptionState(school);
+  const selectedPlan = getPlanConfig(school.plan);
+  const selectedTerm = getSubscriptionTermConfig(school.subscriptionTerm);
+  const faculties = (school.faculties || []).map((faculty) => ({
+    _id: faculty._id.toString(),
+    facultyId: faculty._id.toString(),
+    name: faculty.name,
+    programmes: (faculty.programmes || []).map((programme) => ({
+      _id: programme._id.toString(),
+      programmeId: programme._id.toString(),
+      name: programme.name,
+      durationYears: programme.durationYears ?? 4,
+    })),
+  }));
+
+  return {
+    schoolId: school._id.toString(),
+    schoolAdmin: sanitizeSchoolAdmin(schoolAdmin),
+    school: {
+      _id: school._id.toString(),
+      schoolId: school._id.toString(),
+      name: school.name,
+      fullName: school.fullName || school.name,
+      shortName: school.shortName || "",
+      supportEmail: school.email || "",
+      email: school.email || "",
+      logoUrl: resolveLogoUrl(req, school.logoUrl),
+      logoStatus: school.logoUrl ? "Uploaded and active" : "Not uploaded",
+      allowedEmailDomains: school.allowedEmailDomains || [],
+      approvedEmailPatterns: (school.allowedEmailDomains || []).map(
+        (domain) => `@${domain}`
+      ),
+      faculties,
+      registrationStatus: school.registrationStatus || "approved",
+    },
+    subscription: {
+      plan: school.plan,
+      planName: selectedPlan.name,
+      studentRange: selectedPlan.studentRange,
+      voteLimit: selectedPlan.maxVoters,
+      expiryDate: school.subscriptionExpiresAt?.toISOString() || null,
+      isActive: school.subscriptionActive,
+      subscriptionTerm: school.subscriptionTerm,
+      subscriptionTermLabel: selectedTerm.label,
+      currentPopulation,
+    },
+    latestRegisterUpload: latestImport
+      ? {
+          importId: latestImport._id.toString(),
+          fileName: latestImport.fileName,
+          uploadedAt: latestImport.createdAt.toISOString(),
+          studentCount: currentPopulation,
+          facultyCoverage,
+          rowsProcessed: latestImport.rowsProcessed,
+          rowsImported: latestImport.rowsImported,
+          studentAccountsUpserted:
+            latestImport.studentAccountsUpserted || latestImport.rowsImported,
+          rowsSkipped: latestImport.rowsSkipped,
+        }
+      : null,
+    ecMembers: {
+      maxEcMembersPerSchool: 5,
+      totalEcMembers: ecMembers.length,
+      assignedEcMembers: ecMembers.map((student) => ({
+        id: student._id.toString(),
+        _id: student._id.toString(),
+        studentId: student.studentId,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        name: `${student.firstName || ""} ${student.lastName || ""}`.trim(),
+        email: student.email,
+        faculty: student.department || "",
+        nationality: student.nationality || "",
+        accountRole: student.accountRole,
+        ecAssignedAt: student.ecAssignedAt?.toISOString?.() || null,
+      })),
+    },
+  };
+};
 
 const setSchoolAdminCookies = (res, { accessToken, refreshToken, csrfToken }) => {
   res.cookie(
@@ -69,7 +198,7 @@ const issueSchoolAdminSession = async (schoolAdmin) => {
   await schoolAdmin.save();
 
   const school = await School.findById(schoolAdmin.schoolId).select(
-    "name fullName shortName logoUrl plan subscriptionActive subscriptionTerm subscriptionExpiresAt"
+    "name fullName shortName logoUrl email plan subscriptionActive subscriptionTerm subscriptionExpiresAt"
   );
 
   return {
@@ -78,19 +207,7 @@ const issueSchoolAdminSession = async (schoolAdmin) => {
     csrfToken,
     role: SCHOOL_ADMIN_ROLE,
     user: sanitizeSchoolAdmin(schoolAdmin),
-    school: school
-      ? {
-          _id: school._id.toString(),
-          name: school.name,
-          fullName: school.fullName || school.name,
-          shortName: school.shortName || "",
-          logoUrl: school.logoUrl || "",
-          plan: school.plan,
-          subscriptionActive: school.subscriptionActive,
-          subscriptionTerm: school.subscriptionTerm,
-          subscriptionExpiresAt: school.subscriptionExpiresAt?.toISOString() || null,
-        }
-      : null,
+    school: formatSchoolSession(null, school),
   };
 };
 
@@ -197,24 +314,29 @@ export const logoutSchoolAdmin = async (req, res) => {
 
 export const getSchoolAdminMe = async (req, res) => {
   const school = await School.findById(req.schoolAdmin.schoolId).select(
-    "name fullName shortName logoUrl plan subscriptionActive subscriptionTerm subscriptionExpiresAt"
+    "name fullName shortName logoUrl email plan subscriptionActive subscriptionTerm subscriptionExpiresAt"
   );
 
   return res.status(200).json({
     role: SCHOOL_ADMIN_ROLE,
     user: sanitizeSchoolAdmin(req.schoolAdmin),
-    school: school
-      ? {
-          _id: school._id.toString(),
-          name: school.name,
-          fullName: school.fullName || school.name,
-          shortName: school.shortName || "",
-          logoUrl: school.logoUrl || "",
-          plan: school.plan,
-          subscriptionActive: school.subscriptionActive,
-          subscriptionTerm: school.subscriptionTerm,
-          subscriptionExpiresAt: school.subscriptionExpiresAt?.toISOString() || null,
-        }
-      : null,
+    school: formatSchoolSession(req, school),
   });
+};
+
+export const getSchoolAdminBootstrap = async (req, res) => {
+  try {
+    const bootstrap = await buildSchoolAdminBootstrap(req, req.schoolAdmin);
+    if (!bootstrap) {
+      return sendError(res, 404, "School not found");
+    }
+
+    return res.status(200).json(bootstrap);
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error.message || "Failed to load school admin bootstrap"
+    );
+  }
 };
