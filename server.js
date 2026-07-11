@@ -5,7 +5,6 @@ import mongoose from "mongoose";
 import path from "path";
 import http from "http";
 import schoolRoutes from "./routes/schoolRoutes.js";
-import ecRoutes from "./routes/ecRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import studentRoutes from "./routes/studentRoutes.js";
 import studentElectionRoutes from "./routes/studentElectionRoutes.js";
@@ -84,7 +83,6 @@ app.use(
   })
 );
 
-app.use("/api/ec", ecRoutes);
 app.use("/public", publicRoutes);
 app.use("/auth", authRoutes);
 app.use("/school-admin", schoolAdminRoutes);

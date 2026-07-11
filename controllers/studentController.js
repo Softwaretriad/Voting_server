@@ -8,7 +8,6 @@ import Vote from "../models/Vote.js";
 import { sanitizeStudentProfile, sendError } from "../utils/apiResponse.js";
 import { resolveLogoUrl } from "../utils/logoUrl.js";
 import { recordActivity } from "../utils/activityLog.js";
-import { notifyStudent } from "../utils/notificationService.js";
 import { EC_ROLE, isEcAccountRole } from "../utils/ecRole.js";
 
 const SCHOOL_LOGO_CACHE_TTL_MS = Number(process.env.SCHOOL_LOGO_CACHE_TTL_MS || 30000);
@@ -70,57 +69,6 @@ export const getStudentProfile = async (req, res) => {
     );
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load student profile");
-  }
-};
-
-export const updateStudentProfile = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { firstName, lastName, phoneNumber, phone } = req.body || {};
-
-    if (req.student._id.toString() !== userId) {
-      return sendError(res, 403, "You are not allowed to update this profile");
-    }
-
-    const student = await Student.findById(userId);
-    if (!student) {
-      return sendError(res, 404, "Student not found");
-    }
-
-    if (firstName != null) {
-      student.firstName = String(firstName).trim();
-    }
-    if (lastName != null) {
-      student.lastName = String(lastName).trim();
-    }
-
-    const resolvedPhone = phoneNumber != null ? phoneNumber : phone;
-    if (resolvedPhone != null) {
-      student.phone = String(resolvedPhone).trim();
-    }
-
-    if (!student.firstName || !student.lastName || !student.phone || !student.email) {
-      return sendError(res, 400, "firstName, lastName, phone, and email cannot be empty");
-    }
-
-    await student.save();
-    await notifyStudent({
-      studentId: student._id,
-      schoolId: student.schoolId,
-      type: "profile_updated",
-      title: "Profile updated",
-      message: "Your profile details were updated successfully.",
-      priority: "low",
-    });
-
-    return res.status(200).json({
-      ...sanitizeStudentProfile(student, {
-        universityLogoUrl: await getStudentLogoUrl(req, student),
-      }),
-      message: "Profile updated successfully",
-    });
-  } catch (error) {
-    return sendError(res, 500, error.message || "Failed to update student profile");
   }
 };
 

@@ -7,12 +7,6 @@ import { EC_ROLE, ecRoleQuery, isEcAccountRole } from "../utils/ecRole.js";
 
 const MAX_EC_MEMBERS_PER_SCHOOL = 5;
 
-export const registerEC = async (_req, res) =>
-  res.status(410).json({
-    error:
-      "Legacy EC self-registration has been retired. EC access now comes from promoting existing student accounts.",
-  });
-
 export const promoteSchoolAdmins = async (req, res) => {
   try {
     const { members = [] } = req.body || {};

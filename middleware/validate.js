@@ -72,32 +72,6 @@ export const validators = {
 
     return null;
   },
-  updateStudentProfile: (req) => {
-    const body = req.body || {};
-    const hasEditableField =
-      body.firstName != null ||
-      body.lastName != null ||
-      body.phoneNumber != null ||
-      body.phone != null;
-
-    if (!hasEditableField) {
-      return "At least one of firstName, lastName, or phoneNumber is required";
-    }
-
-    if (body.firstName != null && !String(body.firstName).trim()) {
-      return "firstName cannot be empty";
-    }
-    if (body.lastName != null && !String(body.lastName).trim()) {
-      return "lastName cannot be empty";
-    }
-
-    const resolvedPhone = body.phoneNumber != null ? body.phoneNumber : body.phone;
-    if (resolvedPhone != null && !String(resolvedPhone).trim()) {
-      return "phoneNumber cannot be empty";
-    }
-
-    return null;
-  },
   deleteStudentAccount: (req) =>
     req.body?.password ? null : "password is required",
   changeStudentEmail: (req) =>

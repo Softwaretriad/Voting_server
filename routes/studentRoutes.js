@@ -3,7 +3,6 @@ import {
   deleteStudentAccount,
   getStudentProfile,
   getStudentVoteHistory,
-  updateStudentProfile,
 } from "../controllers/studentController.js";
 import {
   getStudentNotificationPreferences,
@@ -18,12 +17,6 @@ const router = express.Router();
 router.use(noStore);
 
 router.get("/:userId", protectStudent, getStudentProfile);
-router.patch(
-  "/:userId",
-  protectStudent,
-  validate(validators.updateStudentProfile),
-  updateStudentProfile
-);
 router.post(
   "/:userId/voting-pin",
   protectStudent,

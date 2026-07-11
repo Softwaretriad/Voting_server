@@ -65,12 +65,11 @@ Admin:
 - `PATCH /admin/elections/:electionId/schedule`
 - `DELETE /admin/elections/:electionId`
 
-Admin membership:
+EC membership is managed by school admins through:
 
-- `POST /api/ec/register`
-- `POST /api/ec/add-member`
-- `GET /api/ec/list/:schoolId`
-- `DELETE /api/ec/:ecId`
+- `POST /schools/:schoolId/ec-members`
+- `GET /schools/:schoolId/ec-members`
+- `DELETE /schools/:schoolId/ec-members/:ecId`
 
 ## Data Model Notes
 
