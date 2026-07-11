@@ -98,10 +98,6 @@
       "value": "10920528@wiuc-ghana.edu.gh"
     },
     {
-      "key": "studentPassword",
-      "value": "David123$"
-    },
-    {
       "key": "googleIdToken",
       "value": ""
     },
@@ -112,10 +108,6 @@
     {
       "key": "ecEmail",
       "value": "10420742@wiuc-ghana.edu.gh"
-    },
-    {
-      "key": "ecPassword",
-      "value": "Nwanna123$"
     },
     {
       "key": "ecToken",
@@ -178,16 +170,8 @@
       "value": "review.student@myunivote.demo"
     },
     {
-      "key": "reviewStudentPassword",
-      "value": "Review@123"
-    },
-    {
       "key": "reviewEcEmail",
       "value": "review.admin@myunivote.demo"
-    },
-    {
-      "key": "reviewEcPassword",
-      "value": "Review@123"
     },
     {
       "key": "publicLeadRequestId",
@@ -196,6 +180,14 @@
     {
       "key": "planUpdateRequestId",
       "value": ""
+    },
+    {
+      "key": "schoolLogoUploadId",
+      "value": ""
+    },
+    {
+      "key": "schoolLogoClientKey",
+      "value": "school-logo-registration"
     }
   ],
   "item": [
@@ -313,169 +305,6 @@
       "name": "Auth",
       "item": [
         {
-          "name": "Register Student",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"studentId\": \"UG-10001\",\n  \"firstName\": \"David\",\n  \"lastName\": \"Mensah\",\n  \"gender\": \"male\",\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\",\n  \"phone\": \"+233240000000\",\n  \"universityFullName\": \"University of Ghana\",\n  \"department\": \"Faculty of Engineering\",\n  \"currentYearOfStudy\": 3,\n  \"programOfStudy\": \"BSc Computer Science\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/register",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "register"
-              ]
-            }
-          }
-        },
-        {
-          "name": "Verify Email",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"otp\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/verify-email",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "verify-email"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status is 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "const data = pm.response.json();",
-                  "if (data.accessToken) pm.collectionVariables.set('accessToken', data.accessToken);",
-                  "if (data.refreshToken) pm.collectionVariables.set('refreshToken', data.refreshToken);",
-                  "if (data.user && data.user.id) pm.collectionVariables.set('userId', data.user.id);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Resend Verification OTP",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{studentEmail}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/resend-verification-otp",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "resend-verification-otp"
-              ]
-            }
-          }
-        },
-        {
-          "name": "Login User",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/login",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "login"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status is 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "const data = pm.response.json();",
-                  "if (data.accessToken) pm.collectionVariables.set('accessToken', data.accessToken);",
-                  "if (data.refreshToken) pm.collectionVariables.set('refreshToken', data.refreshToken);",
-                  "if (data.user && data.user.id) pm.collectionVariables.set('userId', data.user.id);",
-                  "if (data.user && data.user.schoolId) pm.collectionVariables.set('schoolId', data.user.schoolId);",
-                  "if (data.role === 'ec') {",
-                  "  const ecToken = data.token || data.accessToken || '';",
-                  "  if (ecToken) pm.collectionVariables.set('ecToken', ecToken);",
-                  "  if (data.user && data.user.id) pm.collectionVariables.set('ecUserId', data.user.id);",
-                  "} else {",
-                  "  pm.collectionVariables.unset('ecToken');",
-                  "  pm.collectionVariables.unset('ecUserId');",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
           "name": "Check Tokens",
           "request": {
             "method": "POST",
@@ -506,7 +335,7 @@
           }
         },
         {
-          "name": "Login With Google",
+          "name": "Login Student/EC With Google",
           "request": {
             "method": "POST",
             "header": [
@@ -559,7 +388,7 @@
           ]
         },
         {
-          "name": "Forgot Password",
+          "name": "Refresh Student/EC Session",
           "request": {
             "method": "POST",
             "header": [
@@ -574,79 +403,42 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{studentEmail}}\"\n}"
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/auth/forgot-password",
+              "raw": "{{baseUrl}}/auth/refresh",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "auth",
-                "forgot-password"
+                "refresh"
               ]
             }
-          }
-        },
-        {
-          "name": "Verify Reset OTP",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) pm.collectionVariables.set('accessToken', data.accessToken);",
+                  "if (data.refreshToken) pm.collectionVariables.set('refreshToken', data.refreshToken);",
+                  "if (data.user && data.user.id) pm.collectionVariables.set('userId', data.user.id);",
+                  "if (data.user && data.user.schoolId) pm.collectionVariables.set('schoolId', data.user.schoolId);",
+                  "if (data.role === 'ec') {",
+                  "  const ecToken = data.token || data.accessToken || '';",
+                  "  if (ecToken) pm.collectionVariables.set('ecToken', ecToken);",
+                  "  if (data.user && data.user.id) pm.collectionVariables.set('ecUserId', data.user.id);",
+                  "}"
+                ]
               }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"otp\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/verify-otp",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "verify-otp"
-              ]
             }
-          }
-        },
-        {
-          "name": "Reset Password",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"resetToken\": \"\",\n  \"newPassword\": \"Password@123\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/reset-password",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "reset-password"
-              ]
-            }
-          }
+          ]
         },
         {
           "name": "Logout User",
@@ -832,7 +624,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"password\": \"{{studentPassword}}\"\n}"
+              "raw": "{}"
             },
             "url": {
               "raw": "{{baseUrl}}/students/{{userId}}",
@@ -2406,6 +2198,58 @@
       "name": "School Admin Auth",
       "item": [
         {
+          "name": "Upload School Logo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "clientKey",
+                  "value": "{{schoolLogoClientKey}}",
+                  "type": "text"
+                },
+                {
+                  "key": "logo",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/schools/logos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "schools",
+                "logos"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.logoUploadId) pm.collectionVariables.set('schoolLogoUploadId', data.logoUploadId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Create School With Official Documents",
           "request": {
             "method": "POST",
@@ -2431,7 +2275,7 @@
               "formdata": [
                 {
                   "key": "payload",
-                  "value": "{\"name\":\"Wisconsin\",\"fullName\":\"Wisconsin International University College\",\"shortName\":\"WIUC\",\"logoUrl\":\"https://example.com/school-logo.png\",\"email\":\"school@example.edu\",\"allowedEmailDomains\":[\"wiuc-ghana.edu.gh\"],\"plan\":\"free\",\"subscriptionTerm\":\"4_months\",\"admin\":{\"firstName\":\"Ama\",\"lastName\":\"Mensah\",\"email\":\"school.admin@example.edu\",\"password\":\"StrongPass123$\"},\"faculties\":[]}",
+                  "value": "{\"name\":\"Wisconsin\",\"fullName\":\"Wisconsin International University College\",\"shortName\":\"WIUC\",\"email\":\"school@example.edu\",\"allowedEmailDomains\":[\"wiuc-ghana.edu.gh\"],\"plan\":\"free\",\"subscriptionTerm\":\"4_months\",\"admin\":{\"firstName\":\"Ama\",\"lastName\":\"Mensah\",\"email\":\"school.admin@example.edu\",\"password\":\"StrongPass123$\"},\"faculties\":[],\"logoUploadId\":\"{{schoolLogoUploadId}}\"}",
                   "type": "text"
                 },
                 {

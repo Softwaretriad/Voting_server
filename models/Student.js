@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import bcrypt from "bcryptjs";
 import {
   hashPin,
   isHashedValue,
@@ -29,8 +28,6 @@ const StudentSchema = new mongoose.Schema(
         message: "email must be a valid email address",
       },
     },
-    password: { type: String, required: true },
-    passwordLoginEnabled: { type: Boolean, default: true },
     phone: { type: String, required: true, trim: true },
     schoolId: { type: mongoose.Schema.Types.ObjectId, ref: "School", default: null },
     accountRole: {
@@ -49,25 +46,19 @@ const StudentSchema = new mongoose.Schema(
     votingPin: { type: String, default: null },
     authProvider: {
       type: String,
-      enum: ["password", "google", "imported"],
-      default: "password",
+      enum: ["google", "imported"],
+      default: "imported",
       index: true,
     },
-    googleSub: { type: String, default: null, trim: true },
+    googleSub: { type: String, default: undefined, trim: true },
     googleLinkedAt: { type: Date, default: null },
     isEmailVerified: { type: Boolean, default: false },
-    emailVerificationOtp: { type: String, default: null },
-    emailVerificationOtpExpires: { type: Date, default: null },
-    passwordResetOtp: { type: String, default: null },
-    passwordResetOtpExpires: { type: Date, default: null },
     votingPinResetOtp: { type: String, default: null },
     votingPinResetOtpExpires: { type: Date, default: null },
     votingPinResetTokenHash: { type: String, default: null },
     votingPinResetTokenExpires: { type: Date, default: null },
     refreshToken: { type: String, default: null },
     sessionVersion: { type: Number, default: 0, min: 0 },
-    passwordResetTokenHash: { type: String, default: null },
-    passwordResetTokenExpires: { type: Date, default: null },
     votingPinAttempts: { type: Number, default: 0 },
     votingPinLockedUntil: { type: Date, default: null },
     notificationPreferences: {
@@ -81,12 +72,6 @@ const StudentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-StudentSchema.pre("save", async function preSave(next) {
-  if (!this.isModified("password")) return next();
-  this.password = await bcrypt.hash(this.password, 10);
-  next();
-});
-
 StudentSchema.pre("save", async function preSaveVotingPin(next) {
   if (!this.isModified("votingPin")) return next();
   if (this.votingPin == null || this.votingPin === "") return next();
@@ -95,13 +80,17 @@ StudentSchema.pre("save", async function preSaveVotingPin(next) {
   next();
 });
 
-StudentSchema.methods.matchPassword = function matchPassword(plainText) {
-  if (this.passwordLoginEnabled === false) return false;
-  return bcrypt.compare(plainText, this.password);
-};
-
 StudentSchema.index({ schoolId: 1, accountRole: 1 });
 StudentSchema.index({ schoolId: 1, studentId: 1 });
-StudentSchema.index({ googleSub: 1 }, { unique: true, sparse: true });
+StudentSchema.index({ schoolId: 1, email: 1 });
+StudentSchema.index({ schoolId: 1, lastName: 1, firstName: 1 });
+StudentSchema.index({ schoolId: 1, department: 1 });
+StudentSchema.index(
+  { googleSub: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { googleSub: { $type: "string" } },
+  }
+);
 
 export default mongoose.model("Student", StudentSchema);

@@ -10,6 +10,7 @@
     "migrate:ec-legacy-cleanup": "node scripts/migrateEcLegacyCleanup.js",
     "migrate:activity-actors": "node scripts/backfillActivityActorSnapshots.js",
     "migrate:analytics": "node scripts/backfillElectionAnalytics.js",
+    "migrate:student-google-index": "node scripts/fixStudentGoogleSubIndex.js",
     "migrate:votes": "node scripts/backfillVotes.js",
     "worker:analytics": "node scripts/analyticsWorker.js",
     "worker:elections": "node scripts/electionLifecycleWorker.js",

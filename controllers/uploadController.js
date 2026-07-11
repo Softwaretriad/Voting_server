@@ -1,8 +1,10 @@
 import fs from "fs/promises";
+import crypto from "crypto";
 import path from "path";
 import sharp from "sharp";
 import Aspirant from "../models/Aspirant.js";
 import Election from "../models/Election.js";
+import SchoolLogoUpload from "../models/SchoolLogoUpload.js";
 import { sendError } from "../utils/apiResponse.js";
 import {
   sanitizeUploadKey,
@@ -13,6 +15,7 @@ import { getElectionImageFilePath, getElectionImagePath } from "../utils/electio
 import {
   buildAspirantImageStoragePath,
   buildElectionImageStoragePath,
+  buildSchoolLogoStoragePath,
   uploadFileToFirebaseStorage,
 } from "../utils/firebaseStorage.js";
 import { notifySchoolAdmins } from "../utils/notificationService.js";
@@ -340,6 +343,82 @@ export const uploadElectionImage = async (req, res) => {
       res,
       isInvalidImage ? 400 : 500,
       isInvalidImage ? error.message : "Unable to upload election image"
+    );
+  }
+};
+
+export const uploadSchoolLogo = async (req, res) => {
+  let optimizedPath = null;
+  try {
+    if (!req.file) {
+      sendError(res, 400, "Logo file is required");
+      return;
+    }
+
+    const fieldError = validateUploadTextFields(req.body);
+    if (fieldError) {
+      await removeFile(req.file.path);
+      sendError(res, 413, fieldError);
+      return;
+    }
+
+    const clientKey = String(req.body?.clientKey || "school-logo").trim();
+    const uploadId = crypto.randomUUID();
+    const filenamePrefix = `school-logo-${sanitizeUploadKey(clientKey)}-${Date.now()}`;
+
+    optimizedPath = await optimizeUploadedImage({
+      inputPath: req.file.path,
+      outputPrefix: filenamePrefix,
+      maxWidth: 512,
+      maxHeight: 512,
+    });
+
+    const filename = path.basename(optimizedPath);
+    const optimizedStat = await fs.stat(optimizedPath);
+    const uploadResult = await uploadFileToFirebaseStorage({
+      filePath: optimizedPath,
+      storagePath: buildSchoolLogoStoragePath({
+        uploadId,
+        clientKey,
+        filename,
+      }),
+      contentType: "image/webp",
+      metadata: {
+        type: "school-logo",
+        uploadId,
+        clientKey,
+      },
+    });
+
+    await removeFile(optimizedPath);
+    optimizedPath = null;
+
+    const logoUpload = await SchoolLogoUpload.create({
+      uploadId,
+      url: uploadResult.url,
+      storagePath: uploadResult.path,
+      originalName: req.file.originalname,
+      mimeType: "image/webp",
+      size: optimizedStat.size,
+    });
+
+    res.status(201).json({
+      message: "School logo uploaded successfully",
+      logoUploadId: logoUpload.uploadId,
+      previewUrl: logoUpload.url,
+      originalName: logoUpload.originalName,
+      mimeType: logoUpload.mimeType,
+      size: logoUpload.size,
+      expiresAt: logoUpload.expiresAt.toISOString(),
+    });
+  } catch (error) {
+    await removeFile(req.file?.path);
+    await removeFile(optimizedPath);
+    const isInvalidImage = isInvalidImageError(error);
+    sendError(
+      res,
+      isInvalidImage ? 400 : 500,
+      isInvalidImage ? error.message : "Unable to upload school logo"
     );
   }
 };

@@ -116,6 +116,17 @@ export const buildAspirantImageStoragePath = ({
     sanitizeStorageSegment(filename)
   );
 
+export const buildSchoolLogoStoragePath = ({
+  uploadId,
+  clientKey = "school-logo",
+  filename = "logo.webp",
+}) =>
+  buildStoragePath(
+    "school-registration-logos",
+    uploadId,
+    `${sanitizeStorageSegment(clientKey)}-${Date.now()}-${sanitizeStorageSegment(filename)}`
+  );
+
 export const uploadBufferToFirebaseStorage = async ({
   buffer,
   storagePath,

@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import School from "../models/school.js";
 import SchoolAdmin from "../models/SchoolAdmin.js";
+import SchoolLogoUpload from "../models/SchoolLogoUpload.js";
 import { sendError } from "../utils/apiResponse.js";
 import {
   isValidEmailDomain,
@@ -36,7 +37,7 @@ export const createSchool = async (req, res) => {
     name,
     fullName,
     shortName,
-    logoUrl,
+    logoUploadId,
     email,
     allowedEmailDomains,
     plan,
@@ -98,6 +99,25 @@ export const createSchool = async (req, res) => {
 
     if (!isValidEmail(email)) {
       return sendError(res, 400, "email must be a valid email address");
+    }
+
+    if (req.body?.logoUrl != null) {
+      return sendError(res, 400, "logoUrl is no longer accepted. Upload a logo first and send logoUploadId.");
+    }
+
+    let logoUrl = "";
+    let logoUpload = null;
+    if (logoUploadId) {
+      logoUpload = await SchoolLogoUpload.findOne({
+        uploadId: String(logoUploadId).trim(),
+        consumedAt: null,
+      });
+
+      if (!logoUpload) {
+        return sendError(res, 400, "Invalid or expired logoUploadId");
+      }
+
+      logoUrl = logoUpload.url;
     }
 
     if (normalizedAllowedDomains.length === 0) {
@@ -199,6 +219,10 @@ export const createSchool = async (req, res) => {
     school.officialDocuments.push(...officialDocuments);
     if ((req.files || []).length > 0) {
       await school.save();
+    }
+    if (logoUpload) {
+      logoUpload.consumedAt = new Date();
+      await logoUpload.save();
     }
 
     res.status(201).json({

@@ -2,12 +2,12 @@ import mongoose from "mongoose";
 import { readSheet } from "read-excel-file/node";
 import PlanUpdateRequest from "../models/PlanUpdateRequest.js";
 import School from "../models/school.js";
+import SchoolLogoUpload from "../models/SchoolLogoUpload.js";
 import SchoolStudentRecord from "../models/SchoolStudentRecord.js";
 import Student from "../models/Student.js";
 import StudentRegisterImport from "../models/StudentRegisterImport.js";
 import { sendError } from "../utils/apiResponse.js";
 import {
-  createOpaqueToken,
   isValidEmail,
   normalizeEmail,
 } from "../utils/security.js";
@@ -23,7 +23,7 @@ import {
   isValidEmailDomain,
   normalizeAllowedEmailDomains,
 } from "../utils/emailDomains.js";
-import { ecRoleQuery } from "../utils/ecRole.js";
+import { ecRoleQuery, STUDENT_ROLE } from "../utils/ecRole.js";
 
 const ensureSchoolAdminAccess = (req, res, schoolId) => {
   if (req.schoolAdmin?.schoolId?.toString() !== schoolId?.toString()) {
@@ -39,6 +39,10 @@ const isSupportedSubscriptionTerm = (term) =>
 
 const supportedPlans = new Set(["free", "micro", "small", "medium", "large", "enterprise"]);
 const isSupportedPlan = (plan) => supportedPlans.has(String(plan || "").trim());
+const importBulkChunkSize = Math.max(
+  100,
+  Number(process.env.STUDENT_REGISTER_IMPORT_CHUNK_SIZE || 500)
+);
 
 const sanitizeSchoolProfile = (school) => ({
   schoolId: school._id.toString(),
@@ -93,7 +97,7 @@ const normalizeHeader = (header) =>
   String(header || "")
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, "");
+    .replace(/[^a-z0-9]/g, "");
 
 const parseCsv = (buffer) => {
   const text = buffer.toString("utf8").replace(/^\uFEFF/, "");
@@ -170,17 +174,134 @@ const getField = (row, names) => {
 const hasAnyHeader = (headers, names) =>
   names.some((name) => headers.includes(normalizeHeader(name)));
 
+const chunkArray = (items, size) => {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+};
+
+const STUDENT_REGISTER_FIELDS = {
+  studentId: [
+    "studentId",
+    "student id",
+    "student_id",
+    "student-id",
+    "student number",
+    "student no",
+    "studentNo",
+    "index number",
+    "index no",
+    "indexNo",
+    "matric number",
+    "matric no",
+    "matricNo",
+    "registration number",
+    "registration no",
+    "reg number",
+    "reg no",
+    "admission number",
+    "admission no",
+  ],
+  firstName: [
+    "firstName",
+    "first name",
+    "first_name",
+    "first-name",
+    "givenName",
+    "given name",
+    "given_name",
+    "given-name",
+    "forename",
+  ],
+  lastName: [
+    "lastName",
+    "last name",
+    "last_name",
+    "last-name",
+    "surname",
+    "familyName",
+    "family name",
+    "family_name",
+    "family-name",
+  ],
+  email: [
+    "email",
+    "emailAddress",
+    "email address",
+    "email_address",
+    "email-address",
+    "studentEmail",
+    "student email",
+    "schoolEmail",
+    "school email",
+    "institutionalEmail",
+    "institutional email",
+  ],
+  gender: ["gender", "sex"],
+  phone: [
+    "phone",
+    "phoneNumber",
+    "phone number",
+    "phone_number",
+    "phone-number",
+    "mobile",
+    "mobileNumber",
+    "mobile number",
+    "telephone",
+    "contact",
+    "contactNumber",
+    "contact number",
+  ],
+  faculty: [
+    "faculty",
+    "facultyName",
+    "faculty name",
+    "department",
+    "departmentName",
+    "department name",
+  ],
+  nationality: ["nationality", "country", "citizenship"],
+  programmeOfStudy: [
+    "programmeOfStudy",
+    "programme of study",
+    "programOfStudy",
+    "program of study",
+    "programme",
+    "program",
+    "course",
+    "courseOfStudy",
+    "course of study",
+    "major",
+    "degreeProgram",
+    "degree program",
+    "academicProgram",
+    "academic program",
+  ],
+  currentYearOfStudy: [
+    "currentYearOfStudy",
+    "current year of study",
+    "yearOfStudy",
+    "year of study",
+    "year",
+    "level",
+    "studentLevel",
+    "student level",
+  ],
+  level: ["level", "studentLevel", "student level", "currentYearOfStudy"],
+};
+
 const parseYearOfStudy = (value) => {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
-const createImportedAccountPassword = () =>
-  `oauth-only-${createOpaqueToken()}`;
+const studentLookupKey = ({ schoolId, studentId }) =>
+  `${schoolId?.toString?.() || schoolId}:${studentId}`;
 
-const upsertImportedStudentAccount = async ({
+const buildImportedStudentFields = ({
   school,
-  importRecord,
   studentId,
   firstName,
   lastName,
@@ -191,64 +312,380 @@ const upsertImportedStudentAccount = async ({
   nationality,
   programmeOfStudy,
   currentYearOfStudy,
-}) => {
-  const existingByEmail = await Student.findOne({ email });
-  const existingByStudentId = await Student.findOne({ schoolId: school._id, studentId });
-  const student = existingByEmail || existingByStudentId;
+}) => ({
+  studentId,
+  firstName,
+  lastName,
+  gender,
+  email,
+  phone,
+  schoolId: school._id,
+  universityFullName: school.fullName || school.name,
+  department: faculty,
+  currentYearOfStudy,
+  programOfStudy: programmeOfStudy,
+  nationality,
+});
 
-  if (existingByEmail && existingByStudentId && existingByEmail._id.toString() !== existingByStudentId._id.toString()) {
-    return {
-      error: "Email and studentId belong to different existing accounts",
-    };
-  }
+const buildImportedStudentInsertFields = (fields) => ({
+  ...fields,
+  accountRole: STUDENT_ROLE,
+  votingPin: null,
+  isEmailVerified: false,
+  authProvider: "imported",
+});
 
-  if (student && student.schoolId?.toString() !== school._id.toString()) {
-    return {
-      error: "Email already belongs to a different school",
-    };
-  }
+const buildSchoolStudentRecordFields = ({
+  schoolId,
+  importRecord,
+  student,
+  studentId,
+  firstName,
+  lastName,
+  email,
+  gender,
+  phone,
+  faculty,
+  nationality,
+  programmeOfStudy,
+  level,
+  currentYearOfStudy,
+}) => ({
+  latestImportId: importRecord._id,
+  studentId,
+  firstName,
+  lastName,
+  email,
+  gender,
+  phone,
+  faculty,
+  nationality,
+  programmeOfStudy,
+  level,
+  currentYearOfStudy,
+  schoolId,
+  studentAccountId: student._id,
+});
 
-  if (student) {
-    student.studentId = studentId;
-    student.firstName = firstName;
-    student.lastName = lastName;
-    student.gender = gender;
-    student.email = email;
-    student.phone = phone;
-    student.schoolId = school._id;
-    student.universityFullName = school.fullName || school.name;
-    student.department = faculty;
-    student.currentYearOfStudy = currentYearOfStudy;
-    student.programOfStudy = programmeOfStudy;
-    student.nationality = nationality;
-    if (!student.authProvider || student.authProvider === "password") {
-      student.authProvider = student.passwordLoginEnabled === false ? "imported" : student.authProvider;
+const normalizeStudentRegisterRows = ({ rows, school }) => {
+  const normalizedRows = [];
+  const skippedRows = [];
+  const seenEmails = new Set();
+  const seenStudentIds = new Set();
+
+  for (const row of rows) {
+    const studentId = getField(row.data, STUDENT_REGISTER_FIELDS.studentId);
+    const firstName = getField(row.data, STUDENT_REGISTER_FIELDS.firstName);
+    const lastName = getField(row.data, STUDENT_REGISTER_FIELDS.lastName);
+    const email = normalizeEmail(getField(row.data, STUDENT_REGISTER_FIELDS.email));
+    const gender = getField(row.data, STUDENT_REGISTER_FIELDS.gender).toLowerCase();
+    const phone = getField(row.data, STUDENT_REGISTER_FIELDS.phone);
+    const faculty = getField(row.data, STUDENT_REGISTER_FIELDS.faculty);
+    const nationality = getField(row.data, STUDENT_REGISTER_FIELDS.nationality);
+    const programmeOfStudy = getField(
+      row.data,
+      STUDENT_REGISTER_FIELDS.programmeOfStudy
+    );
+    const currentYearOfStudy = parseYearOfStudy(
+      getField(row.data, STUDENT_REGISTER_FIELDS.currentYearOfStudy)
+    );
+    const level = getField(row.data, STUDENT_REGISTER_FIELDS.level);
+
+    if (
+      !studentId ||
+      !firstName ||
+      !lastName ||
+      !isValidEmail(email) ||
+      !["male", "female"].includes(gender) ||
+      !phone ||
+      !faculty ||
+      !nationality ||
+      !programmeOfStudy
+    ) {
+      skippedRows.push({
+        rowNumber: row.rowNumber,
+        reason: "Missing required data, invalid email, or invalid gender",
+      });
+      continue;
     }
-    await student.save();
-    return { student };
+
+    if (!emailMatchesAllowedDomains(email, school.allowedEmailDomains)) {
+      skippedRows.push({
+        rowNumber: row.rowNumber,
+        reason: "Email does not match this school's allowed domains",
+      });
+      continue;
+    }
+
+    if (seenEmails.has(email) || seenStudentIds.has(studentId)) {
+      skippedRows.push({
+        rowNumber: row.rowNumber,
+        reason: "Duplicate email or studentId in uploaded file",
+      });
+      continue;
+    }
+
+    seenEmails.add(email);
+    seenStudentIds.add(studentId);
+    normalizedRows.push({
+      rowNumber: row.rowNumber,
+      studentId,
+      firstName,
+      lastName,
+      email,
+      gender,
+      phone,
+      faculty,
+      nationality,
+      programmeOfStudy,
+      currentYearOfStudy,
+      level,
+    });
   }
 
-  const createdStudent = await Student.create({
-    studentId,
-    firstName,
-    lastName,
-    gender,
-    email,
-    password: createImportedAccountPassword(),
-    passwordLoginEnabled: false,
-    phone,
-    schoolId: school._id,
-    universityFullName: school.fullName || school.name,
-    department: faculty,
-    currentYearOfStudy,
-    programOfStudy: programmeOfStudy,
-    nationality,
-    votingPin: null,
-    isEmailVerified: false,
-    authProvider: "imported",
-  });
+  return { normalizedRows, skippedRows };
+};
 
-  return { student: createdStudent };
+const buildStudentImportBulkOperations = async ({
+  school,
+  importRecord,
+  normalizedRows,
+  existingByEmail,
+  existingByStudentId,
+}) => {
+  const studentOps = [];
+  const schoolStudentRecordOps = [];
+  const skippedRows = [];
+  let rowsImported = 0;
+  let studentAccountsUpserted = 0;
+
+  for (const row of normalizedRows) {
+    const existingByEmailMatch = existingByEmail.get(row.email);
+    const existingByStudentIdMatch = existingByStudentId.get(
+      studentLookupKey({ schoolId: school._id, studentId: row.studentId })
+    );
+    const student = existingByEmailMatch || existingByStudentIdMatch;
+
+    if (
+      existingByEmailMatch &&
+      existingByStudentIdMatch &&
+      existingByEmailMatch._id.toString() !== existingByStudentIdMatch._id.toString()
+    ) {
+      skippedRows.push({
+        rowNumber: row.rowNumber,
+        reason: "Email and studentId belong to different existing accounts",
+      });
+      continue;
+    }
+
+    if (student && student.schoolId?.toString() !== school._id.toString()) {
+      skippedRows.push({
+        rowNumber: row.rowNumber,
+        reason: "Email already belongs to a different school",
+      });
+      continue;
+    }
+
+    const studentId = student?._id || new mongoose.Types.ObjectId();
+    const resolvedStudent = { _id: studentId };
+    const studentFields = buildImportedStudentFields({
+      school,
+      ...row,
+    });
+
+    if (student) {
+      const updateSet = { ...studentFields };
+      if (!student.authProvider) {
+        updateSet.authProvider = "imported";
+      }
+
+      studentOps.push({
+        updateOne: {
+          filter: { _id: student._id },
+          update: { $set: updateSet },
+        },
+      });
+    } else {
+      studentOps.push({
+        updateOne: {
+          filter: { _id: studentId },
+          update: {
+            $setOnInsert: buildImportedStudentInsertFields(studentFields),
+          },
+          upsert: true,
+        },
+      });
+    }
+
+    schoolStudentRecordOps.push({
+      updateOne: {
+        filter: { schoolId: school._id, studentId: row.studentId },
+        update: {
+          $set: buildSchoolStudentRecordFields({
+            schoolId: school._id,
+            importRecord,
+            student: resolvedStudent,
+            ...row,
+          }),
+        },
+        upsert: true,
+      },
+    });
+
+    rowsImported += 1;
+    studentAccountsUpserted += 1;
+  }
+
+  return {
+    studentOps,
+    schoolStudentRecordOps,
+    skippedRows,
+    rowsImported,
+    studentAccountsUpserted,
+  };
+};
+
+const writeBulkInChunks = async (model, operations) => {
+  for (const chunk of chunkArray(operations, importBulkChunkSize)) {
+    await model.bulkWrite(chunk, { ordered: false });
+  }
+};
+
+const processStudentRegisterImport = async ({
+  importId,
+  schoolId,
+  file,
+}) => {
+  const importRecord = await StudentRegisterImport.findById(importId);
+  if (!importRecord) return;
+
+  try {
+    importRecord.status = "processing";
+    importRecord.startedAt = new Date();
+    importRecord.errorMessage = "";
+    await importRecord.save();
+
+    const school = await School.findById(schoolId);
+    if (!school) {
+      const error = new Error("School not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const { headers, rows } = await parseStudentRegisterFile(file);
+    const requiredColumnGroups = [
+      STUDENT_REGISTER_FIELDS.studentId,
+      STUDENT_REGISTER_FIELDS.firstName,
+      STUDENT_REGISTER_FIELDS.lastName,
+      STUDENT_REGISTER_FIELDS.email,
+      STUDENT_REGISTER_FIELDS.gender,
+      STUDENT_REGISTER_FIELDS.phone,
+      STUDENT_REGISTER_FIELDS.faculty,
+      STUDENT_REGISTER_FIELDS.nationality,
+      STUDENT_REGISTER_FIELDS.programmeOfStudy,
+    ];
+    const missingColumns = requiredColumnGroups
+      .filter((group) => !hasAnyHeader(headers, group))
+      .map((group) => group[0]);
+    if (missingColumns.length > 0) {
+      const error = new Error(`Missing columns: ${missingColumns.join(", ")}`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const { normalizedRows, skippedRows: validationSkippedRows } =
+      normalizeStudentRegisterRows({ rows, school });
+    const emails = normalizedRows.map((row) => row.email);
+    const studentIds = normalizedRows.map((row) => row.studentId);
+
+    const [existingByEmailMatches, existingByStudentIdMatches] = await Promise.all([
+      emails.length > 0
+        ? Student.find({ email: { $in: emails } })
+            .select("_id email schoolId studentId authProvider")
+            .lean()
+        : Promise.resolve([]),
+      studentIds.length > 0
+        ? Student.find({ schoolId: school._id, studentId: { $in: studentIds } })
+            .select("_id email schoolId studentId authProvider")
+            .lean()
+        : Promise.resolve([]),
+    ]);
+
+    const existingByEmail = new Map(
+      existingByEmailMatches.map((student) => [student.email, student])
+    );
+    const existingByStudentId = new Map(
+      existingByStudentIdMatches.map((student) => [
+        studentLookupKey({ schoolId: student.schoolId, studentId: student.studentId }),
+        student,
+      ])
+    );
+
+    const {
+      studentOps,
+      schoolStudentRecordOps,
+      skippedRows: conflictSkippedRows,
+      rowsImported,
+      studentAccountsUpserted,
+    } = await buildStudentImportBulkOperations({
+      school,
+      importRecord,
+      normalizedRows,
+      existingByEmail,
+      existingByStudentId,
+    });
+
+    const skippedRows = [...validationSkippedRows, ...conflictSkippedRows];
+
+    if (studentOps.length > 0) {
+      await writeBulkInChunks(Student, studentOps);
+    }
+
+    if (schoolStudentRecordOps.length > 0) {
+      await writeBulkInChunks(SchoolStudentRecord, schoolStudentRecordOps);
+    }
+
+    const [studentCount, facultyCount] = await Promise.all([
+      Student.countDocuments({ schoolId }),
+      Student.distinct("department", { schoolId }).then(
+        (faculties) => faculties.filter(Boolean).length
+      ),
+    ]);
+
+    importRecord.status = "completed";
+    importRecord.rowsProcessed = rows.length;
+    importRecord.rowsImported = rowsImported;
+    importRecord.studentAccountsUpserted = studentAccountsUpserted;
+    importRecord.rowsSkipped = skippedRows.length;
+    importRecord.requiredColumnsValidated = true;
+    importRecord.studentCount = studentCount;
+    importRecord.facultyCount = facultyCount;
+    importRecord.skippedRows = skippedRows.slice(0, 100);
+    importRecord.completedAt = new Date();
+    importRecord.failedAt = null;
+    importRecord.errorMessage = "";
+    await importRecord.save();
+  } catch (error) {
+    importRecord.status = "failed";
+    importRecord.failedAt = new Date();
+    importRecord.errorMessage = String(
+      error.message || "Failed to import student register"
+    ).slice(0, 500);
+    await importRecord.save().catch(() => null);
+    console.error("Student register import failed:", {
+      importId: importId?.toString?.() || importId,
+      schoolId: schoolId?.toString?.() || schoolId,
+      error: error.message,
+    });
+  }
+};
+
+const queueStudentRegisterImport = (payload) => {
+  setImmediate(() => {
+    processStudentRegisterImport(payload).catch((error) => {
+      console.error("Student register import worker crashed:", error);
+    });
+  });
 };
 
 export const getSchoolProfile = async (req, res) => {
@@ -287,6 +724,7 @@ export const updateSchoolProfile = async (req, res) => {
       shortName,
       email,
       logoUrl,
+      logoUploadId,
       allowedEmailDomains,
       allowedDomains,
       faculties,
@@ -313,10 +751,27 @@ export const updateSchoolProfile = async (req, res) => {
       school.email = normalizeEmail(email);
     }
 
+    if (logoUrl !== undefined) {
+      return sendError(res, 400, "logoUrl is no longer accepted. Upload a logo first and send logoUploadId.");
+    }
+
+    let pendingLogoUpload = null;
+    if (logoUploadId !== undefined) {
+      pendingLogoUpload = await SchoolLogoUpload.findOne({
+        uploadId: String(logoUploadId).trim(),
+        consumedAt: null,
+      });
+
+      if (!pendingLogoUpload) {
+        return sendError(res, 400, "Invalid or expired logoUploadId");
+      }
+
+      school.logoUrl = pendingLogoUpload.url;
+    }
+
     if (name !== undefined) school.name = String(name).trim();
     if (fullName !== undefined) school.fullName = String(fullName).trim();
     if (shortName !== undefined) school.shortName = String(shortName).trim();
-    if (logoUrl !== undefined) school.logoUrl = String(logoUrl).trim();
     if (faculties !== undefined) {
       if (!Array.isArray(faculties)) {
         return sendError(res, 400, "faculties must be an array");
@@ -333,6 +788,10 @@ export const updateSchoolProfile = async (req, res) => {
     }
 
     await school.save();
+    if (pendingLogoUpload) {
+      pendingLogoUpload.consumedAt = new Date();
+      await pendingLogoUpload.save();
+    }
     return res.status(200).json(sanitizeSchoolProfile(school));
   } catch (error) {
     if (error.code === 11000) {
@@ -444,157 +903,31 @@ export const importStudentRegister = async (req, res) => {
 
     const fileName = req.file.originalname || "student-register";
 
-    const { headers, rows } = await parseStudentRegisterFile(req.file);
-    const requiredColumnGroups = [
-      ["studentId"],
-      ["firstName"],
-      ["lastName"],
-      ["email"],
-      ["gender"],
-      ["phone", "phoneNumber"],
-      ["faculty", "department"],
-      ["nationality"],
-      ["programmeOfStudy", "programOfStudy", "programme", "program"],
-    ];
-    const missingColumns = requiredColumnGroups
-      .filter((group) => !hasAnyHeader(headers, group))
-      .map((group) => group.join(" or "));
-    if (missingColumns.length > 0) {
-      return sendError(res, 400, `Missing columns: ${missingColumns.join(", ")}`);
-    }
-
     const importRecord = await StudentRegisterImport.create({
       schoolId,
       uploadedBy: req.schoolAdmin._id,
       fileName,
       mimeType: req.file.mimetype || "",
-      rowsProcessed: rows.length,
-      requiredColumnsValidated: true,
+      status: "queued",
     });
 
-    const skippedRows = [];
-    let rowsImported = 0;
-    let studentAccountsUpserted = 0;
-    for (const row of rows) {
-      const studentId = getField(row.data, ["studentId"]);
-      const firstName = getField(row.data, ["firstName"]);
-      const lastName = getField(row.data, ["lastName"]);
-      const email = normalizeEmail(getField(row.data, ["email"]));
-      const gender = getField(row.data, ["gender"]).toLowerCase();
-      const phone = getField(row.data, ["phone", "phoneNumber"]);
-      const faculty = getField(row.data, ["faculty", "department"]);
-      const nationality = getField(row.data, ["nationality"]);
-      const programmeOfStudy = getField(row.data, [
-        "programmeOfStudy",
-        "programOfStudy",
-        "programme",
-        "program",
-      ]);
-      const currentYearOfStudy = parseYearOfStudy(
-        getField(row.data, ["currentYearOfStudy", "yearOfStudy", "year", "level"])
-      );
-      const level = getField(row.data, ["level", "currentYearOfStudy"]);
+    queueStudentRegisterImport({
+      importId: importRecord._id,
+      schoolId: school._id,
+      file: {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        buffer: Buffer.from(req.file.buffer),
+      },
+    });
 
-      if (
-        !studentId ||
-        !firstName ||
-        !lastName ||
-        !isValidEmail(email) ||
-        !["male", "female"].includes(gender) ||
-        !phone ||
-        !faculty ||
-        !nationality ||
-        !programmeOfStudy
-      ) {
-        skippedRows.push({
-          rowNumber: row.rowNumber,
-          reason: "Missing required data, invalid email, or invalid gender",
-        });
-        continue;
-      }
-
-      if (!emailMatchesAllowedDomains(email, school.allowedEmailDomains)) {
-        skippedRows.push({
-          rowNumber: row.rowNumber,
-          reason: "Email does not match this school's allowed domains",
-        });
-        continue;
-      }
-
-      const { student, error } = await upsertImportedStudentAccount({
-        school,
-        importRecord,
-        studentId,
-        firstName,
-        lastName,
-        email,
-        gender,
-        phone,
-        faculty,
-        nationality,
-        programmeOfStudy,
-        currentYearOfStudy,
-      });
-      if (error) {
-        skippedRows.push({
-          rowNumber: row.rowNumber,
-          reason: error,
-        });
-        continue;
-      }
-
-      await SchoolStudentRecord.updateOne(
-        { schoolId, studentId },
-        {
-          $set: {
-            latestImportId: importRecord._id,
-            studentId,
-            firstName,
-            lastName,
-            email,
-            gender,
-            phone,
-            faculty,
-            nationality,
-            programmeOfStudy,
-            level,
-            currentYearOfStudy,
-            studentAccountId: student._id,
-          },
-        },
-        { upsert: true }
-      );
-      rowsImported += 1;
-      studentAccountsUpserted += 1;
-    }
-
-    importRecord.rowsImported = rowsImported;
-    importRecord.studentAccountsUpserted = studentAccountsUpserted;
-    importRecord.rowsSkipped = skippedRows.length;
-    importRecord.skippedRows = skippedRows.slice(0, 100);
-    await importRecord.save();
-
-    const [studentCount, facultyCoverage] = await Promise.all([
-      SchoolStudentRecord.countDocuments({ schoolId }),
-      SchoolStudentRecord.distinct("faculty", { schoolId }).then(
-        (faculties) => faculties.length
-      ),
-    ]);
-
-    return res.status(201).json({
+    return res.status(202).json({
       importId: importRecord._id.toString(),
       schoolId,
       fileName,
+      status: importRecord.status,
       uploadedAt: importRecord.createdAt.toISOString(),
-      rowsProcessed: importRecord.rowsProcessed,
-      rowsImported,
-      studentAccountsUpserted,
-      rowsSkipped: skippedRows.length,
-      studentCount,
-      facultyCount: facultyCoverage,
-      facultyCoverage,
-      requiredColumnsValidated: true,
-      skippedRows: importRecord.skippedRows,
+      message: "Student register import queued",
     });
   } catch (error) {
     const statusCode =
@@ -622,21 +955,30 @@ export const getLatestStudentRegisterImport = async (req, res) => {
     }
 
     const [studentCount, facultyCount] = await Promise.all([
-      SchoolStudentRecord.countDocuments({ schoolId }),
-      SchoolStudentRecord.distinct("faculty", { schoolId }).then((faculties) => faculties.length),
+      Student.countDocuments({ schoolId }),
+      Student.distinct("department", { schoolId }).then(
+        (faculties) => faculties.filter(Boolean).length
+      ),
     ]);
 
     return res.status(200).json({
       importId: latestImport._id.toString(),
       fileName: latestImport.fileName,
+      status: latestImport.status || "completed",
       uploadedAt: latestImport.createdAt.toISOString(),
-      studentCount,
-      facultyCount,
-      facultyCoverage: facultyCount,
+      startedAt: latestImport.startedAt?.toISOString() || null,
+      completedAt: latestImport.completedAt?.toISOString() || null,
+      failedAt: latestImport.failedAt?.toISOString() || null,
+      errorMessage: latestImport.errorMessage || "",
+      studentCount: latestImport.studentCount || studentCount,
+      facultyCount: latestImport.facultyCount || facultyCount,
+      facultyCoverage: latestImport.facultyCount || facultyCount,
       rowsProcessed: latestImport.rowsProcessed,
       rowsImported: latestImport.rowsImported,
       studentAccountsUpserted: latestImport.studentAccountsUpserted || latestImport.rowsImported,
       rowsSkipped: latestImport.rowsSkipped,
+      requiredColumnsValidated: latestImport.requiredColumnsValidated,
+      skippedRows: latestImport.skippedRows || [],
     });
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load latest import");
@@ -654,48 +996,42 @@ export const searchRegisteredStudents = async (req, res) => {
     }
 
     const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const records = await SchoolStudentRecord.find({
+    const students = await Student.find({
       schoolId,
       $or: [
         { studentId: new RegExp(escaped, "i") },
         { firstName: new RegExp(escaped, "i") },
         { lastName: new RegExp(escaped, "i") },
         { email: new RegExp(escaped, "i") },
+        { department: new RegExp(escaped, "i") },
+        { nationality: new RegExp(escaped, "i") },
       ],
     })
       .sort({ lastName: 1, firstName: 1 })
-      .limit(25);
-
-    const studentIds = records.map((record) => record.studentId);
-    const emails = records.map((record) => record.email);
-    const accounts = await Student.find({
-      schoolId,
-      $or: [{ studentId: { $in: studentIds } }, { email: { $in: emails } }],
-    }).select("_id studentId email accountRole");
-    const accountByStudentId = new Map(
-      accounts.map((account) => [account.studentId, account])
-    );
-    const accountByEmail = new Map(accounts.map((account) => [account.email, account]));
+      .limit(25)
+      .select(
+        "_id studentId firstName lastName email department nationality programOfStudy currentYearOfStudy accountRole"
+      )
+      .lean();
 
     return res.status(200).json({
-      results: records.map((record) => {
-        const account =
-          accountByStudentId.get(record.studentId) || accountByEmail.get(record.email);
-        return {
-          recordId: record._id.toString(),
-          userId: account?._id?.toString() || null,
-          studentId: record.studentId,
-          firstName: record.firstName,
-          lastName: record.lastName,
-          email: record.email,
-          faculty: record.faculty,
-          nationality: record.nationality,
-          programmeOfStudy: record.programmeOfStudy,
-          level: record.level,
-          role: account?.accountRole || "registered_student",
-          hasStudentAccount: Boolean(account),
-        };
-      }),
+      results: students.map((student) => ({
+        recordId: null,
+        userId: student._id.toString(),
+        studentId: student.studentId,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        email: student.email,
+        faculty: student.department,
+        nationality: student.nationality,
+        programmeOfStudy: student.programOfStudy,
+        level:
+          student.currentYearOfStudy == null
+            ? ""
+            : String(student.currentYearOfStudy),
+        role: student.accountRole || "student",
+        hasStudentAccount: true,
+      })),
     });
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to search students");

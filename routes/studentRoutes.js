@@ -1,6 +1,5 @@
 import express from "express";
 import {
-  changeStudentEmail,
   deleteStudentAccount,
   getStudentProfile,
   getStudentVoteHistory,
@@ -11,7 +10,6 @@ import {
   updateStudentNotificationPreferences,
 } from "../controllers/notificationController.js";
 import { setVotingPin } from "../controllers/studentVoteController.js";
-import { protectDeleteAccount } from "../middleware/authDeleteAccount.js";
 import { protectStudent } from "../middleware/authStudent.js";
 import { validate, validators } from "../middleware/validate.js";
 import { noStore } from "../middleware/noStore.js";
@@ -26,12 +24,6 @@ router.patch(
   validate(validators.updateStudentProfile),
   updateStudentProfile
 );
-router.patch(
-  "/:userId/email",
-  protectStudent,
-  validate(validators.changeStudentEmail),
-  changeStudentEmail
-);
 router.post(
   "/:userId/voting-pin",
   protectStudent,
@@ -40,8 +32,7 @@ router.post(
 );
 router.delete(
   "/:userId",
-  protectDeleteAccount,
-  validate(validators.deleteStudentAccount),
+  protectStudent,
   deleteStudentAccount
 );
 router.get("/:userId/vote-history", protectStudent, getStudentVoteHistory);

@@ -4,7 +4,7 @@ REST API for the MyUniVote mobile platform. This backend supports the student ap
 
 ## What This Backend Covers
 
-- Student registration, email verification, login, logout, token checks, password reset, and voting PIN recovery
+- Google OAuth student login, logout, token checks, and voting PIN recovery
 - Public school, faculty, and programme lookup for onboarding flows
 - Student profile, active elections, schedule, statistics, notifications, voting, and results endpoints
 - Admin election management endpoints for listing, creating, updating, scheduling, and deleting elections
@@ -24,14 +24,10 @@ REST API for the MyUniVote mobile platform. This backend supports the student ap
 
 Student authentication:
 
-- `POST /auth/register`
-- `POST /auth/verify-email`
-- `POST /auth/login`
+- `POST /auth/google`
 - `POST /auth/logout`
+- `POST /auth/refresh`
 - `POST /auth/check-tokens`
-- `POST /auth/forgot-password`
-- `POST /auth/verify-otp`
-- `POST /auth/reset-password`
 
 Public lookup:
 
@@ -56,6 +52,7 @@ Voting:
 
 - `POST /votes/verify-pin`
 - `POST /votes/cast`
+- `POST /votes/pin/set`
 - `POST /votes/pin/forgot`
 - `POST /votes/pin/verify-otp`
 - `POST /votes/pin/reset`
@@ -86,7 +83,7 @@ Admin membership:
 
 The backend includes a practical first round of hardening for sensitive student and admin flows:
 
-- Passwords are hashed
+- Student sign-in is passwordless through Google OAuth
 - Voting PINs are hashed
 - OTPs and reset tokens are stored as hashes
 - Refresh tokens are stored as hashes
@@ -226,7 +223,7 @@ The repo includes a ready-to-import Postman collection:
 
 It covers:
 
-- student auth
+- Google student auth
 - school lookup
 - student profile, elections, voting, and results
 - voting PIN recovery

@@ -7,11 +7,7 @@ import PushDevice from "../models/PushDevice.js";
 import Vote from "../models/Vote.js";
 import { sanitizeStudentProfile, sendError } from "../utils/apiResponse.js";
 import { resolveLogoUrl } from "../utils/logoUrl.js";
-import sendEmail from "../utils/sendEmail.js";
 import { recordActivity } from "../utils/activityLog.js";
-import { createOtp, getOtpExpiry } from "../utils/studentAuth.js";
-import { hashSecret, normalizeEmail } from "../utils/security.js";
-import { emailMatchesAllowedDomains } from "../utils/emailDomains.js";
 import { notifyStudent } from "../utils/notificationService.js";
 import { EC_ROLE, isEcAccountRole } from "../utils/ecRole.js";
 
@@ -36,19 +32,6 @@ const getStudentLogoUrl = async (req, student) => {
   });
 
   return resolveLogoUrl(req, school?.logoUrl);
-};
-
-const sendUpdatedEmailVerificationOtp = async (student) => {
-  const otp = createOtp();
-  student.emailVerificationOtp = await hashSecret(otp);
-  student.emailVerificationOtpExpires = getOtpExpiry();
-  await student.save();
-
-  await sendEmail(
-    student.email,
-    "Verify your updated MyUniVote email",
-    `Your MyUniVote verification code is ${otp}. It expires in 10 minutes.`
-  );
 };
 
 const anonymizeElectionVotesForDeletedStudent = async (studentObjectId) => {
@@ -141,91 +124,6 @@ export const updateStudentProfile = async (req, res) => {
   }
 };
 
-export const changeStudentEmail = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { email } = req.body || {};
-
-    if (req.student._id.toString() !== userId) {
-      return sendError(res, 403, "You are not allowed to change this email");
-    }
-
-    const student = await Student.findById(userId);
-    if (!student) {
-      return sendError(res, 404, "Student not found");
-    }
-
-    const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail) {
-      return sendError(res, 400, "email cannot be empty");
-    }
-
-    if (normalizedEmail === student.email) {
-      return sendError(res, 409, "Please provide a different email address");
-    }
-
-    const school = await School.findById(student.schoolId)
-      .select("allowedEmailDomains")
-      .lean();
-    if (!school?.allowedEmailDomains?.length) {
-      return sendError(res, 400, "Your university has no allowed email domains configured");
-    }
-    if (!emailMatchesAllowedDomains(normalizedEmail, school.allowedEmailDomains)) {
-      return sendError(
-        res,
-        400,
-        `Email must use one of your university's allowed domains: ${school.allowedEmailDomains.join(
-          ", "
-        )}`
-      );
-    }
-
-    const existingStudent = await Student.findOne({
-      email: normalizedEmail,
-      _id: { $ne: student._id },
-    }).select("_id");
-    if (existingStudent) {
-      return sendError(res, 409, "Email already registered");
-    }
-
-    student.email = normalizedEmail;
-    student.isEmailVerified = false;
-    student.refreshToken = null;
-    student.sessionVersion = Number(student.sessionVersion || 0) + 1;
-    await student.save();
-
-    await sendUpdatedEmailVerificationOtp(student);
-    await recordActivity({
-      actorType: "student",
-      actorId: student._id,
-      schoolId: student.schoolId,
-      action: "Student Email Change Verification Sent",
-    });
-    await notifyStudent({
-      studentId: student._id,
-      schoolId: student.schoolId,
-      type: "email_changed",
-      title: "Email changed",
-      message: "Your email was changed. Please verify the new address with the OTP sent to it.",
-      priority: "high",
-      data: {
-        email: student.email,
-      },
-    });
-
-    return res.status(200).json({
-      ...sanitizeStudentProfile(student, {
-        universityLogoUrl: await getStudentLogoUrl(req, student),
-      }),
-      verificationEmailSent: true,
-      message:
-        "Email updated. Please verify your new email address with the OTP sent to it.",
-    });
-  } catch (error) {
-    return sendError(res, 500, error.message || "Failed to change email");
-  }
-};
-
 export const getStudentVoteHistory = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -286,24 +184,14 @@ export const getStudentVoteHistory = async (req, res) => {
 export const deleteStudentAccount = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { password } = req.body || {};
 
-    if (req.accountStudent._id.toString() !== userId) {
+    if (req.student._id.toString() !== userId) {
       return sendError(res, 403, "You are not allowed to delete this account");
-    }
-
-    if (!password) {
-      return sendError(res, 400, "password is required");
     }
 
     const student = await Student.findById(userId);
     if (!student) {
       return sendError(res, 404, "Student not found");
-    }
-
-    const passwordMatches = await student.matchPassword(password);
-    if (!passwordMatches) {
-      return sendError(res, 401, "Invalid password");
     }
 
     const wasAdmin = isEcAccountRole(student.accountRole);

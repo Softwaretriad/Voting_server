@@ -1,13 +1,10 @@
 import School from "../models/school.js";
 import SchoolStudentRecord from "../models/SchoolStudentRecord.js";
 import Student from "../models/Student.js";
-import sendEmail from "../utils/sendEmail.js";
 import { sendError, sanitizeStudent } from "../utils/apiResponse.js";
 import { emailMatchesAllowedDomains } from "../utils/emailDomains.js";
 import { resolveLogoUrl } from "../utils/logoUrl.js";
 import {
-  createOtp,
-  getOtpExpiry,
   signEcAccessToken,
   signEcRefreshToken,
   signAccessToken,
@@ -16,18 +13,10 @@ import {
 } from "../utils/studentAuth.js";
 import {
   compareSecret,
-  createOpaqueToken,
   hashSecret,
-  isFourDigitPin,
-  isStrongPassword,
   normalizeEmail,
-  strongPasswordMessage,
 } from "../utils/security.js";
 import { recordActivity } from "../utils/activityLog.js";
-import {
-  notifyAdmin,
-  notifyStudent,
-} from "../utils/notificationService.js";
 import { EC_ROLE, ecRoleQuery, isEcAccountRole, isEcRole } from "../utils/ecRole.js";
 import { verifyGoogleIdToken } from "../utils/googleAuth.js";
 
@@ -46,8 +35,6 @@ const sanitizeEcUser = (ecUser) => ({
   email: ecUser.email,
   schoolId: ecUser.schoolId,
 });
-
-const createImportedAccountPassword = () => `oauth-only-${createOpaqueToken()}`;
 
 const findApprovedSchoolForEmail = async (email) => {
   const schools = await School.find({
@@ -112,38 +99,6 @@ const findEcPrincipalById = async (userId, sessionVersion = null) => {
   return Student.findOne(filter);
 };
 
-const sendVerificationOtp = async (student) => {
-  const otp = createOtp();
-  const expiresAt = getOtpExpiry();
-  student.emailVerificationOtp = await hashSecret(otp);
-  student.emailVerificationOtpExpires = expiresAt;
-  await student.save();
-
-  await sendEmail(
-    student.email,
-    "Verify your MyUniVote email",
-    `Your MyUniVote verification code is ${otp}. It expires in 10 minutes.`
-  );
-
-  return { otp, expiresAt };
-};
-
-const getDebugOtpPayload = (req, otp, expiresAt) => {
-  const wantsDebugOtp = String(req.headers["x-debug-otp"] || "").toLowerCase() === "true";
-  if (process.env.NODE_ENV === "production" || !wantsDebugOtp) {
-    return {};
-  }
-
-  return {
-    debugOtp: otp,
-    debugOtpExpiresAt: expiresAt?.toISOString?.() || null,
-  };
-};
-
-const wantsDebugOtp = (req) =>
-  process.env.NODE_ENV !== "production" &&
-  String(req.headers["x-debug-otp"] || "").toLowerCase() === "true";
-
 const issueSession = async (req, student) => {
   const accessToken = signAccessToken(student);
   const refreshToken = signRefreshToken(student);
@@ -179,314 +134,6 @@ const issueEcSession = async (ecUser) => {
     role: EC_ROLE,
     user: sanitizeEcUser(ecUser),
   };
-};
-
-const resolveSchoolSelection = async ({
-  universityFullName,
-  department,
-  programOfStudy,
-  email,
-}) => {
-  const school = await School.findOne({
-    $and: [
-      {
-        $or: [{ fullName: universityFullName }, { name: universityFullName }],
-      },
-      {
-        $or: [
-          { registrationStatus: "approved" },
-          { registrationStatus: { $exists: false } },
-        ],
-      },
-    ],
-  });
-
-  if (!school) {
-    return { error: "Selected university was not found in the school list" };
-  }
-
-  if (!Array.isArray(school.allowedEmailDomains) || school.allowedEmailDomains.length === 0) {
-    return { error: "Selected university has no allowed email domains configured" };
-  }
-
-  if (!emailMatchesAllowedDomains(email, school.allowedEmailDomains)) {
-    return {
-      error: `Email must use one of this university's allowed domains: ${school.allowedEmailDomains.join(", ")}`,
-    };
-  }
-
-  const faculty = school.faculties.find((item) => item.name === department);
-  if (!faculty) {
-    return { error: "Selected faculty was not found for this university" };
-  }
-
-  const programme = faculty.programmes.find((item) => item.name === programOfStudy);
-  if (!programme) {
-    return { error: "Selected programme was not found for this faculty" };
-  }
-
-  return { school };
-};
-
-export const registerStudent = async (req, res) => {
-  try {
-    if (process.env.MANUAL_STUDENT_REGISTRATION_ENABLED === "false") {
-      return sendError(res, 403, "Manual student registration is disabled");
-    }
-
-    const {
-      studentId,
-      firstName,
-      lastName,
-      gender,
-      email,
-      password,
-      phone,
-      universityFullName,
-      department,
-      currentYearOfStudy,
-      programOfStudy,
-    } = req.body;
-
-    const normalizedEmail = normalizeEmail(email);
-
-    if (
-      !studentId ||
-      !firstName ||
-      !lastName ||
-      !gender ||
-      !normalizedEmail ||
-      !password ||
-      !phone ||
-      !universityFullName ||
-      !department ||
-      !programOfStudy
-    ) {
-      return sendError(res, 400, "All required registration fields must be provided");
-    }
-
-    if (!isStrongPassword(password)) {
-      return sendError(res, 400, strongPasswordMessage);
-    }
-
-    if (req.body.votingPin != null && !isFourDigitPin(req.body.votingPin)) {
-      return sendError(res, 400, "Voting PIN must be a 4-digit integer");
-    }
-
-    const existingStudent = await Student.findOne({ email: normalizedEmail });
-    if (existingStudent) {
-      return sendError(res, 409, "Email already registered");
-    }
-
-    const { school, error: schoolError } = await resolveSchoolSelection({
-      universityFullName,
-      department,
-      programOfStudy,
-      email: normalizedEmail,
-    });
-
-    if (schoolError) {
-      return sendError(res, 400, schoolError);
-    }
-
-    const student = await Student.create({
-      studentId,
-      firstName,
-      lastName,
-      gender,
-      email: normalizedEmail,
-      password,
-      phone,
-      schoolId: school._id,
-      universityFullName,
-      department,
-      currentYearOfStudy:
-        currentYearOfStudy == null || currentYearOfStudy === ""
-          ? null
-          : Number(currentYearOfStudy),
-      programOfStudy,
-      votingPin: req.body.votingPin == null ? null : String(req.body.votingPin),
-    });
-
-    const { otp, expiresAt } = await sendVerificationOtp(student);
-    await notifyStudent({
-      studentId: student._id,
-      schoolId: student.schoolId,
-      type: "account_created_verification_sent",
-      title: "Account created",
-      message: "Your verification OTP has been sent to your email address.",
-      priority: "high",
-    });
-    await recordActivity({
-      actorType: "student",
-      actorId: student._id,
-      schoolId: student.schoolId,
-      action: "Student Registration Initiated",
-    });
-
-    return res.status(201).json({
-      email: student.email,
-      ...getDebugOtpPayload(req, otp, expiresAt),
-    });
-  } catch (error) {
-    return sendError(res, 500, error.message || "Failed to register student");
-  }
-};
-
-export const verifyEmail = async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-    const student = await Student.findOne({ email: normalizeEmail(email) });
-    const otpMatches = student
-      ? await compareSecret(otp, student.emailVerificationOtp)
-      : false;
-    const expiresAt = student?.emailVerificationOtpExpires || null;
-    const isExpired = expiresAt ? expiresAt < new Date() : true;
-
-    if (
-      !student ||
-      !otpMatches ||
-      !expiresAt ||
-      isExpired
-    ) {
-      return sendError(
-        res,
-        400,
-        "Invalid or expired OTP",
-        wantsDebugOtp(req)
-          ? {
-              debug: {
-                studentFound: Boolean(student),
-                storedOtpExists: Boolean(student?.emailVerificationOtp),
-                otpMatches,
-                expiresAt: expiresAt?.toISOString?.() || null,
-                isExpired,
-                now: new Date().toISOString(),
-                submittedOtp: String(otp || ""),
-              },
-            }
-          : {}
-      );
-    }
-
-    student.isEmailVerified = true;
-    student.emailVerificationOtp = null;
-    student.emailVerificationOtpExpires = null;
-    await student.save();
-
-    await recordActivity({
-      actorType: "student",
-      actorId: student._id,
-      schoolId: student.schoolId,
-      action: "Student Email Verified",
-    });
-    await notifyStudent({
-      studentId: student._id,
-      schoolId: student.schoolId,
-      type: "email_verified_successfully",
-      title: "Email verified",
-      message: "Your email has been verified successfully.",
-      priority: "normal",
-    });
-
-    const session = await issueSession(req, student);
-    return res.status(200).json(session);
-  } catch (error) {
-    return sendError(res, 500, error.message || "Failed to verify email");
-  }
-};
-
-export const resendVerificationOtp = async (req, res) => {
-  try {
-    const { email } = req.body;
-    const student = await Student.findOne({ email: normalizeEmail(email) });
-
-    if (!student || student.isEmailVerified) {
-      return res.status(200).json({});
-    }
-
-    const { otp, expiresAt } = await sendVerificationOtp(student);
-    await recordActivity({
-      actorType: "student",
-      actorId: student._id,
-      schoolId: student.schoolId,
-      action: "Student Verification OTP Resent",
-    });
-    await notifyStudent({
-      studentId: student._id,
-      schoolId: student.schoolId,
-      type: "verification_otp_resent",
-      title: "Verification code resent",
-      message: "A new verification OTP has been sent to your email.",
-      priority: "normal",
-    });
-
-    return res.status(200).json({
-      ...getDebugOtpPayload(req, otp, expiresAt),
-    });
-  } catch (error) {
-    return sendError(res, 500, error.message || "Failed to resend verification OTP");
-  }
-};
-
-export const loginStudent = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const normalizedEmail = normalizeEmail(email);
-    const student = await Student.findOne({ email: normalizedEmail });
-
-    const studentPasswordMatches = student
-      ? await student.matchPassword(password || "")
-      : false;
-
-    if (studentPasswordMatches) {
-      if (!student.isEmailVerified) {
-        return sendError(
-          res,
-          403,
-          "Email not verified. Please request a new verification code."
-        );
-      }
-
-      if (isEcAccountRole(student.accountRole)) {
-        if (student.accountRole !== EC_ROLE) {
-          student.accountRole = EC_ROLE;
-        }
-        const session = await issueEcSession(student);
-        await recordActivity({
-          actorType: EC_ROLE,
-          actorId: student._id,
-          schoolId: student.schoolId,
-          action: "EC Login Success",
-        });
-        await notifyAdmin({
-          ecUserId: student._id,
-          schoolId: student.schoolId,
-          type: "ec_login_success",
-          title: "Login successful",
-          message: "You signed in successfully.",
-          priority: "low",
-        });
-        return res.status(200).json(session);
-      }
-
-      const session = await issueSession(req, student);
-      await recordActivity({
-        actorType: "student",
-        actorId: student._id,
-        schoolId: student.schoolId,
-        action: "Student Login Success",
-      });
-      return res.status(200).json({
-        ...session,
-        role: "student",
-      });
-    }
-
-    return sendError(res, 401, "Invalid email or password");
-  } catch (error) {
-    return sendError(res, 500, error.message || "Failed to login");
-  }
 };
 
 export const loginWithGoogle = async (req, res) => {
@@ -543,8 +190,6 @@ export const loginWithGoogle = async (req, res) => {
         lastName: importedRecord.lastName || googleProfile.lastName || "",
         gender: importedRecord.gender,
         email: normalizedEmail,
-        password: createImportedAccountPassword(),
-        passwordLoginEnabled: false,
         phone: importedRecord.phone,
         schoolId: school._id,
         universityFullName: school.fullName || school.name,
@@ -569,10 +214,7 @@ export const loginWithGoogle = async (req, res) => {
 
       student.googleSub = googleProfile.sub;
       student.googleLinkedAt = student.googleLinkedAt || new Date();
-      student.authProvider =
-        student.authProvider === "password" && student.passwordLoginEnabled !== false
-          ? "password"
-          : "google";
+      student.authProvider = "google";
       student.isEmailVerified = true;
       if (!student.schoolId) {
         student.schoolId = school._id;
@@ -804,145 +446,5 @@ export const refreshSession = async (req, res) => {
     });
   } catch {
     return sendError(res, 401, "Invalid or expired refresh token");
-  }
-};
-
-export const forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-    const student = await Student.findOne({ email: normalizeEmail(email) });
-
-    if (!student) {
-      return res.status(200).json({});
-    }
-
-    const otp = createOtp();
-    student.passwordResetOtp = await hashSecret(otp);
-    student.passwordResetOtpExpires = getOtpExpiry();
-    await student.save();
-
-    await sendEmail(
-      student.email,
-      "Reset your MyUniVote password",
-      `Your MyUniVote password reset code is ${otp}. It expires in 10 minutes.`
-    );
-
-    await recordActivity({
-      actorType: "student",
-      actorId: student._id,
-      schoolId: student.schoolId,
-      action: "Student Password Reset Requested",
-    });
-    await notifyStudent({
-      studentId: student._id,
-      schoolId: student.schoolId,
-      type: "password_reset_requested",
-      title: "Password reset requested",
-      message: "A password reset OTP has been sent to your email.",
-      priority: "high",
-    });
-
-    return res.status(200).json({});
-  } catch (error) {
-    return sendError(res, 500, error.message || "Failed to send reset OTP");
-  }
-};
-
-export const verifyResetOtp = async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-    const student = await Student.findOne({ email: normalizeEmail(email) });
-
-    if (
-      student &&
-      student.emailVerificationOtp &&
-      student.emailVerificationOtpExpires &&
-      student.emailVerificationOtpExpires > new Date() &&
-      !student.passwordResetOtp
-    ) {
-      return sendError(
-        res,
-        400,
-        "This OTP is for email verification. Use /auth/verify-email instead."
-      );
-    }
-
-    if (
-      !student ||
-      !(await compareSecret(otp, student.passwordResetOtp)) ||
-      !student.passwordResetOtpExpires ||
-      student.passwordResetOtpExpires < new Date()
-    ) {
-      return sendError(res, 400, "Invalid or expired OTP");
-    }
-
-    student.passwordResetOtp = null;
-    student.passwordResetOtpExpires = null;
-    const resetToken = createOpaqueToken();
-    student.passwordResetTokenHash = await hashSecret(resetToken);
-    student.passwordResetTokenExpires = new Date(Date.now() + 10 * 60 * 1000);
-    await student.save();
-
-    return res.status(200).json({
-      resetToken,
-    });
-  } catch (error) {
-    return sendError(res, 500, error.message || "Failed to verify reset OTP");
-  }
-};
-
-export const resetPassword = async (req, res) => {
-  try {
-    const { resetToken, newPassword } = req.body;
-
-    if (!resetToken || !newPassword) {
-      return sendError(res, 400, "resetToken and newPassword are required");
-    }
-
-    if (!isStrongPassword(newPassword)) {
-      return sendError(res, 400, strongPasswordMessage);
-    }
-
-    const candidates = await Student.find({
-      passwordResetTokenExpires: { $gt: new Date() },
-    });
-
-    let student = null;
-    for (const candidate of candidates) {
-      if (await compareSecret(resetToken, candidate.passwordResetTokenHash)) {
-        student = candidate;
-        break;
-      }
-    }
-
-    if (!student) {
-      return sendError(res, 401, "Invalid or expired reset token");
-    }
-
-    student.password = newPassword;
-    student.refreshToken = null;
-    student.sessionVersion = Number(student.sessionVersion || 0) + 1;
-    student.passwordResetTokenHash = null;
-    student.passwordResetTokenExpires = null;
-    await student.save();
-
-    await recordActivity({
-      actorType: "student",
-      actorId: student._id,
-      schoolId: student.schoolId,
-      action: "Student Password Reset Completed",
-    });
-    await notifyStudent({
-      studentId: student._id,
-      schoolId: student.schoolId,
-      type: "password_reset_completed",
-      title: "Password reset completed",
-      message: "Your password has been changed successfully.",
-      priority: "high",
-    });
-
-    return res.status(200).json({});
-  } catch {
-    return sendError(res, 401, "Invalid or expired reset token");
   }
 };

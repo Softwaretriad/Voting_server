@@ -1,10 +1,7 @@
 import { sendError } from "../utils/apiResponse.js";
 import {
   isFourDigitPin,
-  isStrongPassword,
   isValidEmail,
-  normalizeEmail,
-  strongPasswordMessage,
 } from "../utils/security.js";
 
 export const validate = (validator) => (req, res, next) => {
@@ -16,34 +13,6 @@ export const validate = (validator) => (req, res, next) => {
 };
 
 export const validators = {
-  registerStudent: (req) => {
-    const body = req.body || {};
-    if (
-      !body.studentId ||
-      !body.firstName ||
-      !body.lastName ||
-      !["male", "female"].includes(body.gender) ||
-      !isValidEmail(body.email) ||
-      !body.password ||
-      !body.phone ||
-      !body.universityFullName ||
-      !body.department ||
-      !body.programOfStudy
-    ) {
-      return "All required registration fields must be provided";
-    }
-    if (!isStrongPassword(body.password)) {
-      return strongPasswordMessage;
-    }
-    if (body.votingPin != null && !isFourDigitPin(body.votingPin)) {
-      return "Voting PIN must be a 4-digit integer";
-    }
-    return null;
-  },
-  loginStudent: (req) =>
-    isValidEmail(req.body?.email) && req.body?.password
-      ? null
-      : "a valid email and password are required",
   googleStudentLogin: (req) =>
     req.body?.idToken && String(req.body.idToken).trim()
       ? null
@@ -52,23 +21,6 @@ export const validators = {
     isValidEmail(req.body?.email) && req.body?.password
       ? null
       : "a valid email and password are required",
-  verifyEmailOtp: (req) =>
-    isValidEmail(req.body?.email) && req.body?.otp
-      ? null
-      : "a valid email and otp are required",
-  forgotPassword: (req) =>
-    isValidEmail(req.body?.email) ? null : "a valid email is required",
-  resendVerificationOtp: (req) =>
-    isValidEmail(req.body?.email) ? null : "a valid email is required",
-  resetPassword: (req) => {
-    if (!req.body?.resetToken || !req.body?.newPassword) {
-      return "resetToken and newPassword are required";
-    }
-    if (!isStrongPassword(req.body.newPassword)) {
-      return strongPasswordMessage;
-    }
-    return null;
-  },
   refreshSession: (req) =>
     req.body?.refreshToken ? null : "refreshToken is required",
   logoutSession: (req) =>

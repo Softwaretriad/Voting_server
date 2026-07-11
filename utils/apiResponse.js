@@ -18,7 +18,7 @@ export const sanitizeStudent = (student, extra = {}) => ({
   currentYearOfStudy: student.currentYearOfStudy,
   programOfStudy: student.programOfStudy,
   nationality: student.nationality || "",
-  authProvider: student.authProvider || "password",
+  authProvider: student.authProvider || "imported",
   hasVotingPin: Boolean(student.votingPin),
   universityLogoUrl: extra.universityLogoUrl || "",
 });
@@ -36,7 +36,7 @@ export const sanitizeStudentProfile = (student, extra = {}) => ({
   currentYearOfStudy: student.currentYearOfStudy,
   programOfStudy: student.programOfStudy,
   nationality: student.nationality || "",
-  authProvider: student.authProvider || "password",
+  authProvider: student.authProvider || "imported",
   hasVotingPin: Boolean(student.votingPin),
   universityLogoUrl: extra.universityLogoUrl || "",
 });

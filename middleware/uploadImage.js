@@ -58,3 +58,16 @@ export const uploadImage = multer({
   },
   fileFilter,
 }).single("image");
+
+export const uploadLogo = multer({
+  storage,
+  limits: {
+    fileSize: maxUploadBytes,
+    files: 1,
+    fields: 5,
+    parts: 6,
+    fieldNameSize: 100,
+    fieldSize: 16 * 1024,
+  },
+  fileFilter,
+}).single("logo");

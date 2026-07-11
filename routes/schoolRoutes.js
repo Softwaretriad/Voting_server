@@ -9,6 +9,10 @@ import {
   updateSchoolSubscription,
 } from "../controllers/schoolController.js";
 import {
+  handleImageUploadError,
+  uploadSchoolLogo,
+} from "../controllers/uploadController.js";
+import {
   createPlanUpdateRequest,
   getAssignedPlan,
   getLatestStudentRegisterImport,
@@ -38,6 +42,7 @@ import {
   uploadSchoolDocuments,
 } from "../middleware/uploadSchoolDocuments.js";
 import { uploadStudentRegister } from "../middleware/uploadStudentRegister.js";
+import { uploadLogo } from "../middleware/uploadImage.js";
 import { rejectMongoOperatorKeys } from "../middleware/noSqlProtection.js";
 import { enforceInputLimits } from "../middleware/inputLimits.js";
 
@@ -46,6 +51,15 @@ const router = express.Router();
 router.get("/", getAllSchools);
 router.get("/:schoolId/faculties", getFacultiesBySchool);
 router.get("/:schoolId/faculties/:facultyId/programmes", getProgrammesByFaculty);
+router.post(
+  "/logos",
+  noStore,
+  createRateLimiter({ key: "upload-school-logo", windowMs: 60 * 60 * 1000, max: 20 }),
+  uploadLogo,
+  handleImageUploadError,
+  rejectMongoOperatorKeys,
+  uploadSchoolLogo
+);
 router.post(
   "/register",
   noStore,
