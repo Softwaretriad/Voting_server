@@ -56,8 +56,8 @@ const stringLimits = new Map(
 
 const arrayLimits = new Map(
   Object.entries({
-    voters: 100000,
-    aspirants: 100000,
+    voters: 0,
+    aspirants: 0,
     members: 10000,
     faculties: 1000,
     nationalities: 1000,

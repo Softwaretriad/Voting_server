@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import School from "../models/school.js";
 import SchoolAdmin from "../models/SchoolAdmin.js";
 import SchoolLogoUpload from "../models/SchoolLogoUpload.js";
+import Student from "../models/Student.js";
 import { sendError } from "../utils/apiResponse.js";
 import {
   isValidEmailDomain,
@@ -16,7 +17,6 @@ import {
 } from "../utils/security.js";
 import { isSchoolRegistrationReviewRequest } from "../middleware/authSchoolRegistrationReview.js";
 import { resolveSuperAdminFromRequest } from "../middleware/authSuperAdmin.js";
-export { promoteSchoolAdmins } from "./authController.js";
 import {
   calculateSubscriptionExpiry,
   getPlanConfig,
@@ -410,6 +410,41 @@ export const getFacultiesBySchool = async (req, res) => {
     );
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load faculties");
+  }
+};
+
+export const getNationalitiesBySchool = async (req, res) => {
+  try {
+    const school = await School.findOne({
+      _id: req.params.schoolId,
+      $or: [
+        { registrationStatus: "approved" },
+        { registrationStatus: { $exists: false } },
+      ],
+    }).select("_id");
+
+    if (!school) {
+      return sendError(res, 404, "School not found");
+    }
+
+    const nationalities = await Student.distinct("nationality", {
+      schoolId: school._id,
+      nationality: { $type: "string", $ne: "" },
+    });
+
+    const sortedNationalities = nationalities
+      .map((nationality) => String(nationality || "").trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+
+    return res.status(200).json(
+      sortedNationalities.map((nationality) => ({
+        id: nationality,
+        name: nationality,
+      }))
+    );
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to load nationalities");
   }
 };
 

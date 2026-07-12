@@ -5,7 +5,7 @@ const AspirantSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     studentId: { type: String, required: true, trim: true },
     programmeOfStudy: { type: String, required: true, trim: true },
-    level: { type: String, required: true, trim: true, alias: "currentYearOfStudy" },
+    level: { type: String, default: "", trim: true, alias: "currentYearOfStudy" },
     faculty: { type: String, required: true, trim: true, alias: "department" },
     electoralCategory: {
       type: String,

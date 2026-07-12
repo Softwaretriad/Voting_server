@@ -1,4 +1,5 @@
 import Election from "../models/Election.js";
+import mongoose from "mongoose";
 import School from "../models/school.js";
 import Student from "../models/Student.js";
 import Aspirant from "../models/Aspirant.js";
@@ -39,7 +40,6 @@ const mapElectionResponse = (election) => ({
   imageUrl: election.imageUrl || "",
   audience: normalizeElectionAudience(election.audience),
   categories: (election.categories || []).map((category) => category.title),
-  //aspirantListUrl: election.aspirantListUrl || "",
 });
 
 const mapEditAspirantResponse = (aspirant) => ({
@@ -57,6 +57,10 @@ const mapEditAspirantResponse = (aspirant) => ({
   voteCount: aspirant.voteCount || 0,
 });
 
+const mapAspirantMutationResponse = (aspirant) => ({
+  aspirant: mapEditAspirantResponse(aspirant),
+});
+
 const normalizeCategories = (categories = []) =>
   categories.map((category) => ({
     title: String(category).trim(),
@@ -72,6 +76,64 @@ const resolveElectionAudience = (body = {}) =>
   });
 
 const validateEcElectionAudience = (audience) => validateElectionAudience(audience);
+
+const findElectionCategory = (election, categoryId) =>
+  (election.categories || []).find(
+    (category) => category._id?.toString() === String(categoryId)
+  );
+
+const getStudentDisplayName = (student) =>
+  [student.firstName, student.lastName].filter(Boolean).join(" ").trim();
+
+const buildAspirantInputFromStudent = ({ student, category, imageUrl }) => ({
+  name: getStudentDisplayName(student),
+  studentId: student.studentId,
+  programmeOfStudy: student.programOfStudy,
+  level:
+    student.currentYearOfStudy == null
+      ? ""
+      : String(student.currentYearOfStudy),
+  faculty: student.department,
+  electoralCategory: category.title,
+  imageUrl,
+});
+
+const rejectRetiredAspirantListFields = (req, res) => {
+  if (req.body.aspirants != null || req.body.aspirantListUrl != null) {
+    sendError(
+      res,
+      400,
+      "Aspirant list uploads have been retired. Create categories, search students, then add aspirants to a category."
+    );
+    return true;
+  }
+
+  return false;
+};
+
+const ensureElectionHasAspirantsForEveryCategory = async (election) => {
+  const categories = election.categories || [];
+  if (categories.length === 0) {
+    return "At least one category is required before scheduling an election";
+  }
+
+  const categoryIds = categories.map((category) => category._id.toString());
+  const assignedCategoryIds = await Aspirant.distinct("categoryId", {
+    electionId: election._id,
+    schoolId: election.schoolId,
+    categoryId: { $in: categoryIds },
+  });
+  const assigned = new Set(assignedCategoryIds.map((categoryId) => categoryId.toString()));
+  const missingCategories = categories
+    .filter((category) => !assigned.has(category._id.toString()))
+    .map((category) => category.title);
+
+  if (missingCategories.length > 0) {
+    return `Each category must have at least one aspirant before scheduling. Missing: ${missingCategories.join(", ")}`;
+  }
+
+  return null;
+};
 
 const resolveAspirantImageUrl = async ({ aspirant, req }) => {
   const providedImageUrl = String(aspirant.imageUrl || "").trim();
@@ -687,8 +749,6 @@ export const createAdminElection = async (req, res) => {
       endDate,
       categories = [],
       status,
-      aspirants = [],
-      aspirantListUrl = "",
       audience,
       audienceScope,
       faculties,
@@ -703,13 +763,19 @@ export const createAdminElection = async (req, res) => {
       );
     }
 
+    if (rejectRetiredAspirantListFields(req, res)) return;
+
     if (!title || !status) {
       return sendError(res, 400, "title and status are required");
     }
 
     const normalizedStatus = parseStatus(status);
-    if (!["draft", "scheduled"].includes(normalizedStatus)) {
-      return sendError(res, 400, "status must be draft or scheduled");
+    if (normalizedStatus !== "draft") {
+      return sendError(
+        res,
+        400,
+        "Create elections as draft first, then add category aspirants and schedule the election."
+      );
     }
     const normalizedAudience = resolveElectionAudience({
       audience,
@@ -723,49 +789,6 @@ export const createAdminElection = async (req, res) => {
     }
 
     const normalizedCategoryTitles = (categories || []).map((category) => String(category).trim());
-    const invalidAspirant = aspirants.find((aspirant) => {
-      const electoralCategory = String(aspirant.electoralCategory || "").trim();
-      return !electoralCategory || !normalizedCategoryTitles.includes(electoralCategory);
-    });
-    if (invalidAspirant) {
-      return sendError(
-        res,
-        400,
-        "Each aspirant.electoralCategory must match one of the provided categories"
-      );
-    }
-
-    const aspirantsMissingImages = await findAspirantsMissingImages({ aspirants, req });
-    if (aspirantsMissingImages.length > 0) {
-      return sendError(
-        res,
-        400,
-        "Each aspirant must have a photo before creating an election",
-        { aspirants: aspirantsMissingImages }
-      );
-    }
-    const aspirantImageOwnershipError = await validateAspirantImageOwnership({
-      aspirants,
-      req,
-    });
-    if (aspirantImageOwnershipError) {
-      return sendError(
-        res,
-        400,
-        aspirantImageOwnershipError.error,
-        aspirantImageOwnershipError.details
-      );
-    }
-
-    if (normalizedStatus === "scheduled") {
-      if (!startDate || !endDate || !Array.isArray(categories) || categories.length === 0) {
-        return sendError(
-          res,
-          400,
-          "title, startDate, endDate, categories, and status are required for scheduled elections"
-        );
-      }
-    }
 
     const normalizedElectionImageUrl = await resolveElectionImageUrl({ imageUrl, req });
     if (imageUrl && !normalizedElectionImageUrl) {
@@ -792,7 +815,10 @@ export const createAdminElection = async (req, res) => {
     let end = null;
     let school = await School.findById(req.schoolId).select("shortName subscriptionExpiresAt");
 
-    if (normalizedStatus === "scheduled") {
+    if (startDate != null || endDate != null) {
+      if (!startDate || !endDate) {
+        return sendError(res, 400, "Both startDate and endDate are required when setting an election window");
+      }
       start = new Date(startDate);
       end = new Date(endDate);
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
@@ -831,26 +857,9 @@ export const createAdminElection = async (req, res) => {
       endTime: end,
       categories: normalizeCategories(normalizedCategoryTitles.filter(Boolean)),
       audience: normalizedAudience,
-      candidates: aspirants
-        .map((aspirant) => ({
-          name: String(aspirant.name || "").trim(),
-          position: String(aspirant.electoralCategory || "").trim(),
-        }))
-        .filter((aspirant) => aspirant.name && aspirant.position),
       status: normalizedStatus,
-      aspirantListUrl,
       subTitle: school?.shortName || "",
     });
-
-    const aspirantDocs = await buildAspirantDocs({
-      aspirants,
-      election,
-      schoolId: req.schoolId,
-      req,
-    });
-    if (aspirantDocs.length > 0) {
-      await Aspirant.insertMany(aspirantDocs);
-    }
 
     await recordActivity({
       actorType: EC_ROLE,
@@ -860,7 +869,6 @@ export const createAdminElection = async (req, res) => {
       metadata: {
         electionId: election._id,
         status: election.status,
-        aspirantsImported: aspirantDocs.length,
       },
     });
     await notifySchoolAdmins({
@@ -871,16 +879,6 @@ export const createAdminElection = async (req, res) => {
       priority: "normal",
       data: { electionId: election._id.toString(), electionTitle: election.title },
     });
-    if (aspirantDocs.length > 0) {
-      await notifySchoolAdmins({
-        schoolId: req.schoolId,
-        type: "aspirant_list_uploaded_successfully",
-        title: "Aspirant list uploaded",
-        message: `${aspirantDocs.length} aspirant records were uploaded for ${election.title}.`,
-        priority: "normal",
-        data: { electionId: election._id.toString(), count: aspirantDocs.length },
-      });
-    }
     if (election.status === "scheduled") {
       await notifyEligibleStudentsForElection({
         election,
@@ -912,6 +910,194 @@ export const createAdminElection = async (req, res) => {
   }
 };
 
+export const addAdminElectionAspirant = async (req, res) => {
+  try {
+    const { electionId } = req.params;
+    const { categoryId, studentUserId, userId, studentId, imageUrl } = req.body || {};
+
+    if (!categoryId) {
+      return sendError(res, 400, "categoryId is required");
+    }
+
+    if (!studentUserId && !userId && !studentId) {
+      return sendError(res, 400, "studentUserId or studentId is required");
+    }
+
+    if (!imageUrl || typeof imageUrl !== "string") {
+      return sendError(res, 400, "imageUrl is required and must be an uploaded aspirant image URL");
+    }
+
+    const election = await Election.findOne({
+      _id: electionId,
+      schoolId: req.schoolId,
+    });
+    if (!election) {
+      return sendError(res, 404, "Election not found");
+    }
+
+    if (!["draft", "scheduled"].includes(parseStatus(election.status))) {
+      return sendError(res, 403, "Aspirants can only be changed for draft or scheduled elections");
+    }
+
+    const category = findElectionCategory(election, categoryId);
+    if (!category) {
+      return sendError(res, 404, "Category not found on this election");
+    }
+
+    const studentFilter = { schoolId: req.schoolId };
+    const studentObjectId = studentUserId || userId;
+    if (studentObjectId) {
+      if (!mongoose.Types.ObjectId.isValid(studentObjectId)) {
+        return sendError(res, 400, "studentUserId must be a valid student object id");
+      }
+      studentFilter._id = studentObjectId;
+    } else {
+      studentFilter.studentId = String(studentId).trim();
+    }
+
+    const student = await Student.findOne(studentFilter)
+      .select("_id studentId firstName lastName email department programOfStudy currentYearOfStudy")
+      .lean();
+    if (!student) {
+      return sendError(res, 404, "Student not found in this school");
+    }
+
+    if (!getStudentDisplayName(student) || !student.programOfStudy || !student.department) {
+      return sendError(
+        res,
+        409,
+        "Student profile is incomplete and cannot be assigned as an aspirant"
+      );
+    }
+
+    const existingAspirant = await Aspirant.findOne({
+      electionId: election._id,
+      schoolId: req.schoolId,
+      studentId: student.studentId,
+    }).select("_id electoralCategory");
+    if (existingAspirant) {
+      return sendError(
+        res,
+        409,
+        "This student is already assigned as an aspirant in this election",
+        { aspirantId: existingAspirant._id.toString() }
+      );
+    }
+
+    const aspirantInput = buildAspirantInputFromStudent({
+      student,
+      category,
+      imageUrl,
+    });
+    const imageUrlResolved = await resolveAspirantImageUrl({
+      aspirant: aspirantInput,
+      req,
+    });
+    if (!imageUrlResolved) {
+      return sendError(
+        res,
+        400,
+        "Aspirant image must be uploaded first and use the returned image URL"
+      );
+    }
+
+    const imageOwnershipError = await validateAspirantImageOwnership({
+      aspirants: [{ ...aspirantInput, imageUrl: imageUrlResolved }],
+      req,
+      electionId: election._id,
+    });
+    if (imageOwnershipError) {
+      return sendError(
+        res,
+        400,
+        imageOwnershipError.error,
+        imageOwnershipError.details
+      );
+    }
+
+    const sameElectionImageConflict = await Aspirant.findOne({
+      electionId: election._id,
+      schoolId: req.schoolId,
+      imageUrl: imageUrlResolved,
+    }).select("_id name studentId");
+    if (sameElectionImageConflict) {
+      return sendError(
+        res,
+        409,
+        "Aspirant photo is already tied to another aspirant in this election",
+        { aspirant: sameElectionImageConflict }
+      );
+    }
+
+    const aspirant = await Aspirant.create({
+      ...aspirantInput,
+      imageUrl: imageUrlResolved,
+      schoolId: req.schoolId,
+      electionId: election._id,
+      categoryId: category._id,
+      title: election.title,
+      voteCount: 0,
+    });
+
+    await recordActivity({
+      actorType: EC_ROLE,
+      actorId: req.ecUser._id,
+      schoolId: req.schoolId,
+      action: "Aspirant Assigned",
+      metadata: {
+        electionId: election._id,
+        aspirantId: aspirant._id,
+        categoryId: category._id,
+      },
+    });
+
+    return res.status(201).json(mapAspirantMutationResponse(aspirant));
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to assign aspirant");
+  }
+};
+
+export const removeAdminElectionAspirant = async (req, res) => {
+  try {
+    const { electionId, aspirantId } = req.params;
+    const election = await Election.findOne({
+      _id: electionId,
+      schoolId: req.schoolId,
+    });
+    if (!election) {
+      return sendError(res, 404, "Election not found");
+    }
+
+    if (!["draft", "scheduled"].includes(parseStatus(election.status))) {
+      return sendError(res, 403, "Aspirants can only be changed for draft or scheduled elections");
+    }
+
+    const aspirant = await Aspirant.findOneAndDelete({
+      _id: aspirantId,
+      electionId: election._id,
+      schoolId: req.schoolId,
+    });
+    if (!aspirant) {
+      return sendError(res, 404, "Aspirant not found");
+    }
+
+    await recordActivity({
+      actorType: EC_ROLE,
+      actorId: req.ecUser._id,
+      schoolId: req.schoolId,
+      action: "Aspirant Removed",
+      metadata: {
+        electionId: election._id,
+        aspirantId: aspirant._id,
+      },
+    });
+
+    return res.status(200).json({ message: "Aspirant removed successfully" });
+  } catch (error) {
+    return sendError(res, 500, error.message || "Failed to remove aspirant");
+  }
+};
+
 export const updateAdminElection = async (req, res) => {
   try {
     const { electionId } = req.params;
@@ -929,8 +1115,6 @@ export const updateAdminElection = async (req, res) => {
       endDate,
       categories,
       status,
-      aspirants,
-      aspirantListUrl,
       audience,
       audienceScope,
       faculties,
@@ -948,6 +1132,8 @@ export const updateAdminElection = async (req, res) => {
         "EC voter-list uploads have been retired. Use audience filters against imported school students."
       );
     }
+
+    if (rejectRetiredAspirantListFields(req, res)) return;
 
     if (title != null) election.title = title;
     if (imageUrl != null) {
@@ -992,6 +1178,17 @@ export const updateAdminElection = async (req, res) => {
       if (!Array.isArray(categories) || categories.length === 0) {
         return sendError(res, 400, "categories must be a non-empty array");
       }
+      const assignedAspirants = await Aspirant.countDocuments({
+        electionId: election._id,
+        schoolId: req.schoolId,
+      });
+      if (assignedAspirants > 0) {
+        return sendError(
+          res,
+          409,
+          "Remove assigned aspirants before changing election categories"
+        );
+      }
       election.categories = normalizeCategories(categories);
     }
     if (
@@ -1022,62 +1219,13 @@ export const updateAdminElection = async (req, res) => {
         if (schoolEligibility.error) {
           return sendError(res, 403, schoolEligibility.error);
         }
+        const readinessError = await ensureElectionHasAspirantsForEveryCategory(election);
+        if (readinessError) {
+          return sendError(res, 400, readinessError);
+        }
       }
       election.status = normalizedStatus;
     }
-    if (aspirantListUrl != null) election.aspirantListUrl = aspirantListUrl;
-    if (aspirants != null) {
-      if (!Array.isArray(aspirants) || aspirants.length === 0) {
-        return sendError(res, 400, "aspirants must be a non-empty array when provided");
-      }
-
-      const normalizedCategoryTitles = (election.categories || []).map((category) =>
-        String(category.title).trim()
-      );
-      const invalidAspirant = aspirants.find((aspirant) => {
-        const electoralCategory = String(aspirant.electoralCategory || "").trim();
-        return !electoralCategory || !normalizedCategoryTitles.includes(electoralCategory);
-      });
-
-      if (invalidAspirant) {
-        return sendError(
-          res,
-          400,
-          "Each aspirant.electoralCategory must match one of the provided categories"
-        );
-      }
-
-      const aspirantsMissingImages = await findAspirantsMissingImages({ aspirants, req });
-      if (aspirantsMissingImages.length > 0) {
-        return sendError(
-          res,
-          400,
-          "Each aspirant must have a photo before updating election aspirants",
-          { aspirants: aspirantsMissingImages }
-        );
-      }
-      const aspirantImageOwnershipError = await validateAspirantImageOwnership({
-        aspirants,
-        req,
-        electionId: election._id,
-      });
-      if (aspirantImageOwnershipError) {
-        return sendError(
-          res,
-          400,
-          aspirantImageOwnershipError.error,
-          aspirantImageOwnershipError.details
-        );
-      }
-
-      election.candidates = aspirants
-        .map((aspirant) => ({
-          name: String(aspirant.name || "").trim(),
-          position: String(aspirant.electoralCategory || "").trim(),
-        }))
-        .filter((aspirant) => aspirant.name && aspirant.position);
-    }
-
     if (
       election.startTime &&
       election.endTime &&
@@ -1114,28 +1262,14 @@ export const updateAdminElection = async (req, res) => {
       return sendError(res, 400, cadenceError);
     }
 
-    await election.save();
-
-    if (aspirants != null) {
-      await Aspirant.deleteMany({ electionId: election._id });
-      const aspirantDocs = await buildAspirantDocs({
-        aspirants,
-        election,
-        schoolId: req.schoolId,
-        req,
-      });
-      if (aspirantDocs.length > 0) {
-        await Aspirant.insertMany(aspirantDocs);
+    if (parseStatus(election.status) === "scheduled") {
+      const readinessError = await ensureElectionHasAspirantsForEveryCategory(election);
+      if (readinessError) {
+        return sendError(res, 400, readinessError);
       }
-      await notifySchoolAdmins({
-        schoolId: req.schoolId,
-        type: "aspirant_list_uploaded_successfully",
-        title: "Aspirant list uploaded",
-        message: `${aspirantDocs.length} aspirant records were uploaded for ${election.title}.`,
-        priority: "normal",
-        data: { electionId: election._id.toString(), count: aspirantDocs.length },
-      });
     }
+
+    await election.save();
 
     await recordActivity({
       actorType: EC_ROLE,
@@ -1217,6 +1351,11 @@ export const scheduleAdminElection = async (req, res) => {
     });
     if (dateError) {
       return sendError(res, 400, dateError);
+    }
+
+    const readinessError = await ensureElectionHasAspirantsForEveryCategory(election);
+    if (readinessError) {
+      return sendError(res, 400, readinessError);
     }
 
     const cadenceError = await validateFreePlanElectionCadence({

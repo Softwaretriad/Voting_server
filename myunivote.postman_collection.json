@@ -11,11 +11,11 @@
     },
     {
       "key": "schoolAdminEmail",
-      "value": "school.admin@wiuc-ghana.edu.gh"
+      "value": "Davidseek69@gmail.com"
     },
     {
       "key": "schoolAdminPassword",
-      "value": "SchoolAdmin123$"
+      "value": "Nwanna123$"
     },
     {
       "key": "schoolAdminCsrfToken",
@@ -119,7 +119,7 @@
     },
     {
       "key": "subscriptionTerm",
-      "value": "1_year"
+      "value": "4_months"
     },
     {
       "key": "pinResetToken",
@@ -188,6 +188,10 @@
     {
       "key": "schoolLogoClientKey",
       "value": "school-logo-registration"
+    },
+    {
+      "key": "nationality",
+      "value": "Ghanaian"
     }
   ],
   "item": [
@@ -293,6 +297,41 @@
                   "const data = pm.response.json();",
                   "if (Array.isArray(data) && data.length > 0 && data[0].id) {",
                   "  pm.collectionVariables.set('programId', data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Nationalities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/schools/{{schoolId}}/nationalities",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "schools",
+                "{{schoolId}}",
+                "nationalities"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (Array.isArray(data) && data.length > 0 && data[0].name) {",
+                  "  pm.collectionVariables.set('nationality', data[0].name);",
                   "}"
                 ]
               }
@@ -2510,14 +2549,14 @@
               "raw": "{\n  \"members\": [\n    {\n      \"studentId\": \"{{invitedEcStudentId}}\",\n      \"email\": \"{{invitedEcEmail}}\"\n    }\n  ]\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/schools/{{schoolId}}/promote-ec-members",
+              "raw": "{{baseUrl}}/schools/{{schoolId}}/ec-members",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "schools",
                 "{{schoolId}}",
-                "promote-ec-members"
+                "ec-members"
               ]
             }
           },
@@ -2746,6 +2785,136 @@
           }
         },
         {
+          "name": "Search EC Aspirant Students",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ecToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ec/students/search?q={{uploadStudentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ec",
+                "students",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{uploadStudentId}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (Array.isArray(data.results) && data.results.length > 0) {",
+                  "  if (data.results[0].studentId) pm.collectionVariables.set('uploadStudentId', data.results[0].studentId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Assign EC Election Aspirant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ecToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoryId\": \"{{categoryId}}\",\n  \"studentId\": \"{{uploadStudentId}}\",\n  \"imageUrl\": \"{{uploadedAspirantImageUrl}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ec/elections/{{electionId}}/aspirants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ec",
+                "elections",
+                "{{electionId}}",
+                "aspirants"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const data = pm.response.json();",
+                  "if (data.aspirant && data.aspirant._id) pm.collectionVariables.set('aspirantId', data.aspirant._id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove EC Election Aspirant",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{ecToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ec/elections/{{electionId}}/aspirants/{{aspirantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ec",
+                "elections",
+                "{{electionId}}",
+                "aspirants",
+                "{{aspirantId}}"
+              ]
+            }
+          }
+        },
+        {
           "name": "Get Scheduled Elections",
           "request": {
             "method": "GET",
@@ -2936,7 +3105,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"SRC General Election\",\n  \"imageUrl\": \"{{uploadedElectionImageUrl}}\",\n  \"startDate\": \"2026-05-01T09:00:00.000Z\",\n  \"endDate\": \"2026-05-02T17:00:00.000Z\",\n  \"categories\": [\"SRC President\", \"General Secretary\"],\n  \"status\": \"draft\",\n  \"audience\": {\n    \"scope\": \"all_students\"\n  },\n  \"aspirantListUrl\": \"aspirants_registry.xlsx\",\n  \"aspirants\": [\n    {\n      \"name\": \"Esi Boateng\",\n      \"studentId\": \"UG010\",\n      \"programmeOfStudy\": \"BSc Computer Science\",\n      \"level\": \"300\",\n      \"faculty\": \"Engineering\",\n      \"electoralCategory\": \"SRC President\"\n    },\n    {\n      \"name\": \"Yaw Asare\",\n      \"studentId\": \"UG011\",\n      \"programmeOfStudy\": \"BA Political Science\",\n      \"level\": \"400\",\n      \"faculty\": \"Social Sciences\",\n      \"electoralCategory\": \"General Secretary\"\n    }\n  ]\n}"
+              "raw": "{\n  \"title\": \"SRC General Election\",\n  \"imageUrl\": \"{{uploadedElectionImageUrl}}\",\n  \"startDate\": \"2026-08-01T09:00:00.000Z\",\n  \"endDate\": \"2026-08-02T17:00:00.000Z\",\n  \"categories\": [\n    \"SRC President\",\n    \"General Secretary\"\n  ],\n  \"status\": \"draft\",\n  \"audience\": {\n    \"scope\": \"all_students\"\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/ec/elections",

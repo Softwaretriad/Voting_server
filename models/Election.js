@@ -22,7 +22,6 @@ const ElectionSchema = new mongoose.Schema({
     enum: ["pending", "draft", "scheduled", "active", "ended", "closed"],
     default: "draft",
   },
-  aspirantListUrl: { type: String, default: "" },
   audience: {
     scope: {
       type: String,
@@ -33,12 +32,6 @@ const ElectionSchema = new mongoose.Schema({
     nationalities: { type: [String], default: [] },
   },
   categories: { type: [ElectionCategorySchema], default: [] },
-  candidates: [
-    {
-      name: { type: String, required: true },
-      position: { type: String, required: true },
-    },
-  ],
   votes: [
     {
       candidate: String,

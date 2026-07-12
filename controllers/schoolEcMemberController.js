@@ -7,7 +7,7 @@ import { EC_ROLE, ecRoleQuery, isEcAccountRole } from "../utils/ecRole.js";
 
 const MAX_EC_MEMBERS_PER_SCHOOL = 5;
 
-export const promoteSchoolAdmins = async (req, res) => {
+export const promoteSchoolEcMembers = async (req, res) => {
   try {
     const { members = [] } = req.body || {};
     const { schoolId } = req.params;
@@ -134,12 +134,11 @@ export const promoteSchoolAdmins = async (req, res) => {
         actorType: "system",
         actorId: null,
         schoolId: school._id,
-        action: "EC Members Assigned By School Bootstrap",
+        action: "EC Members Assigned By School Admin",
         metadata: {
           assignedStudentIds: assigned.map((item) => item.studentId),
           assignedEmails: assigned.map((item) => item.email),
           skippedStudentIds: skipped.map((item) => item.studentId),
-          promotionAuthMode: req.schoolAdmin ? "school_admin_cookie" : "school_id_bootstrap",
           schoolAdminId: req.schoolAdmin?._id?.toString?.() || null,
         },
       });
@@ -163,9 +162,108 @@ export const promoteSchoolAdmins = async (req, res) => {
       maxEcMembersPerSchool: MAX_EC_MEMBERS_PER_SCHOOL,
     });
   } catch (err) {
-    console.error("EC PROMOTION ERROR:", err);
+    console.error("EC promotion error:", err);
     return res.status(500).json({
       error: err.message || "Failed to promote EC members",
     });
+  }
+};
+
+export const listSchoolEcMembers = async (req, res) => {
+  const { schoolId } = req.params;
+
+  try {
+    if (req.schoolId && req.schoolId.toString() !== schoolId?.toString()) {
+      return res.status(403).json({ error: "You are not allowed to access this school" });
+    }
+
+    const school = await School.findById(schoolId).select("_id");
+    if (!school) return res.status(404).json({ error: "School not found" });
+
+    const ecMembers = await Student.find({
+      schoolId,
+      accountRole: ecRoleQuery(),
+    }).select(
+      "studentId firstName lastName email department nationality schoolId accountRole createdAt updatedAt ecAssignedAt"
+    );
+
+    return res.json({
+      maxEcMembersPerSchool: MAX_EC_MEMBERS_PER_SCHOOL,
+      totalEcMembers: ecMembers.length,
+      assignedEcMembers: ecMembers.map((student) => ({
+        id: student._id.toString(),
+        _id: student._id.toString(),
+        studentId: student.studentId,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        name: `${student.firstName || ""} ${student.lastName || ""}`.trim(),
+        email: student.email,
+        faculty: student.department || "",
+        nationality: student.nationality || "",
+        accountRole: student.accountRole,
+        ecAssignedAt: student.ecAssignedAt,
+      })),
+      members: ecMembers.map((student) => ({
+        id: student._id.toString(),
+        _id: student._id,
+        studentId: student.studentId,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        name: `${student.firstName || ""} ${student.lastName || ""}`.trim(),
+        email: student.email,
+        faculty: student.department || "",
+        nationality: student.nationality || "",
+        schoolId: student.schoolId,
+        accountRole: student.accountRole,
+        accountType: "student_ec",
+        ecAssignedAt: student.ecAssignedAt,
+        createdAt: student.createdAt,
+        updatedAt: student.updatedAt,
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+export const removeSchoolEcMember = async (req, res) => {
+  const { ecId } = req.params;
+  const schoolId = req.schoolId;
+
+  try {
+    const ecMember = await Student.findOne({
+      _id: ecId,
+      schoolId,
+      accountRole: ecRoleQuery(),
+    });
+    if (!ecMember) {
+      return res.status(404).json({ error: "EC member not found" });
+    }
+
+    ecMember.accountRole = "student";
+    ecMember.ecAssignedAt = null;
+    ecMember.ecAssignedBy = null;
+    ecMember.refreshToken = null;
+    ecMember.sessionVersion = Number(ecMember.sessionVersion || 0) + 1;
+    await ecMember.save();
+
+    await notifySchoolAdmins({
+      schoolId,
+      type: "ec_member_removed",
+      title: "EC member removed",
+      message: `${ecMember.firstName} ${ecMember.lastName} was removed from EC.`,
+      priority: "normal",
+      data: {
+        ecUserId: ecId,
+        studentId: ecMember.studentId,
+        email: normalizeEmail(ecMember.email),
+      },
+      excludeEcUserIds: [ecId],
+    });
+
+    return res.json({ message: "EC member removed" });
+  } catch (err) {
+    console.error("Remove EC member error:", err);
+    return res.status(500).json({ error: err.message });
   }
 };

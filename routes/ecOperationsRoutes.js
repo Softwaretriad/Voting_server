@@ -5,15 +5,18 @@ import {
   getAdminVoteHistory as getEcVoteHistory,
 } from "../controllers/adminVoteController.js";
 import {
+  addAdminElectionAspirant as addEcElectionAspirant,
   createAdminElection as createEcElection,
   deleteAdminElection as deleteEcElection,
   getAdminElectionById as getEcElectionById,
   getAdminElectionAspirants as getEcElectionAspirants,
   getAdminElectionCategories as getEcElectionCategories,
   getAdminElectionsByStatus as getEcElectionsByStatus,
+  removeAdminElectionAspirant as removeEcElectionAspirant,
   scheduleAdminElection as scheduleEcElection,
   updateAdminElection as updateEcElection,
 } from "../controllers/adminElectionController.js";
+import { searchEcStudents } from "../controllers/ecStudentController.js";
 import {
   getAdminActivity as getEcActivity,
   getAdminDashboard as getEcDashboard,
@@ -59,6 +62,7 @@ router.patch(
   updateEcNotificationPreferences
 );
 
+router.get("/students/search", protect, searchEcStudents);
 router.get("/dashboard/:schoolId", protect, getEcDashboard);
 router.get("/monitor/elections/:electionId", protect, getEcElectionMonitor);
 const imageUploadRateLimit = createRateLimiter({
@@ -89,6 +93,12 @@ router.get("/elections", protect, validate(validators.ecElectionList), getEcElec
 router.get("/elections/:electionId", protect, getEcElectionById);
 router.get("/elections/:electionId/categories", protect, getEcElectionCategories);
 router.get("/elections/:electionId/aspirants", protect, getEcElectionAspirants);
+router.post("/elections/:electionId/aspirants", protect, addEcElectionAspirant);
+router.delete(
+  "/elections/:electionId/aspirants/:aspirantId",
+  protect,
+  removeEcElectionAspirant
+);
 router.post(
   "/elections",
   createRateLimiter({ key: "ec-create-election", windowMs: 10 * 60 * 1000, max: 20 }),

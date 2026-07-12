@@ -132,46 +132,21 @@ export const validators = {
       : "status query must be one of active, scheduled, draft, or closed",
   ecElectionCreate: (req) => {
     const body = req.body || {};
-    if (!body.title || !["draft", "scheduled"].includes(body.status)) {
-      return "title and status are required";
+    if (!body.title || body.status !== "draft") {
+      return "title and status=draft are required";
     }
 
-    if (body.status === "scheduled") {
-      if (
-        !body.startDate ||
-        !body.endDate ||
-        !Array.isArray(body.categories) ||
-        body.categories.length === 0
-      ) {
-        return "title, startDate, endDate, categories, and status are required for scheduled elections";
-      }
+    if (!Array.isArray(body.categories) || body.categories.length === 0) {
+      return "categories must be a non-empty array";
     }
     if (body.imageUrl != null && typeof body.imageUrl !== "string") {
       return "imageUrl must be a string when provided";
     }
-    if (body.categories != null && !Array.isArray(body.categories)) {
-      return "categories must be an array when provided";
-    }
     if (body.voters != null || body.voterListUrl != null || body.keepExistingVoters != null) {
       return "EC voter-list uploads are no longer supported; use audience filters";
     }
-    if (body.aspirants != null && !Array.isArray(body.aspirants)) {
-      return "aspirants must be an array when provided";
-    }
-    if (body.status === "scheduled" && (body.aspirants == null || body.aspirants.length === 0)) {
-      return "aspirants is required and must be a non-empty array for scheduled elections";
-    }
-    const invalidAspirant = (body.aspirants || []).find(
-      (aspirant) =>
-        !aspirant?.name ||
-        !aspirant?.studentId ||
-        !aspirant?.programmeOfStudy ||
-        !aspirant?.level ||
-        !aspirant?.faculty ||
-        !aspirant?.electoralCategory
-    );
-    if (invalidAspirant) {
-      return "Each aspirant must include name, studentId, programmeOfStudy, level, faculty, and electoralCategory";
+    if (body.aspirants != null || body.aspirantListUrl != null) {
+      return "Aspirant list uploads are no longer supported; use student search and category assignment";
     }
     return null;
   },

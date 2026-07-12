@@ -4,8 +4,8 @@ import {
   checkSubscription,
   getAllSchools,
   getFacultiesBySchool,
+  getNationalitiesBySchool,
   getProgrammesByFaculty,
-  promoteSchoolAdmins as promoteSchoolEcMembers,
   updateSchoolSubscription,
 } from "../controllers/schoolController.js";
 import {
@@ -29,9 +29,10 @@ import {
   getAdminReports as getSchoolAdminReports,
 } from "../controllers/adminInsightsController.js";
 import {
-  listECMembers as listSchoolEcMembers,
-  removeECMember as removeSchoolEcMember,
-} from "../controllers/ecController.js";
+  listSchoolEcMembers,
+  promoteSchoolEcMembers,
+  removeSchoolEcMember,
+} from "../controllers/schoolEcMemberController.js";
 import { protectSchoolAdmin } from "../middleware/authSchoolAdmin.js";
 import { requireSchoolAdminCsrf } from "../middleware/csrfSchoolAdmin.js";
 import { validate, validators } from "../middleware/validate.js";
@@ -50,6 +51,7 @@ const router = express.Router();
 
 router.get("/", getAllSchools);
 router.get("/:schoolId/faculties", getFacultiesBySchool);
+router.get("/:schoolId/nationalities", getNationalitiesBySchool);
 router.get("/:schoolId/faculties/:facultyId/programmes", getProgrammesByFaculty);
 router.post(
   "/logos",
@@ -69,14 +71,6 @@ router.post(
   rejectMongoOperatorKeys,
   enforceInputLimits,
   createSchool
-);
-router.post(
-  "/:schoolId/promote-ec-members",
-  noStore,
-  protectSchoolAdmin,
-  requireSchoolAdminCsrf,
-  validate(validators.inviteAdminMembers),
-  promoteSchoolEcMembers
 );
 router.post(
   "/:schoolId/ec-members",
