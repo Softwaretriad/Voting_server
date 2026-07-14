@@ -9,9 +9,15 @@ import { sanitizeStudentProfile, sendError } from "../utils/apiResponse.js";
 import { resolveLogoUrl } from "../utils/logoUrl.js";
 import { recordActivity } from "../utils/activityLog.js";
 import { EC_ROLE, isEcAccountRole } from "../utils/ecRole.js";
+import { getCacheJson, setCacheJson } from "../utils/redisClient.js";
 
 const SCHOOL_LOGO_CACHE_TTL_MS = Number(process.env.SCHOOL_LOGO_CACHE_TTL_MS || 30000);
+const STUDENT_PROFILE_CACHE_TTL_SECONDS = Number(
+  process.env.STUDENT_PROFILE_CACHE_TTL_SECONDS || 5
+);
 const schoolLogoCache = new Map();
+
+const getStudentProfileCacheKey = (studentId) => `student-profile:${studentId}`;
 
 const getStudentLogoUrl = async (req, student) => {
   const schoolId = student.schoolId?.toString?.();
@@ -61,12 +67,18 @@ export const getStudentProfile = async (req, res) => {
     }
 
     const student = req.student;
+    const cacheKey = getStudentProfileCacheKey(userId);
+    const cachedProfile = await getCacheJson(cacheKey);
+    if (cachedProfile) {
+      return res.status(200).json(cachedProfile);
+    }
 
-    return res.status(200).json(
-      sanitizeStudentProfile(student, {
+    const profile = sanitizeStudentProfile(student, {
         universityLogoUrl: await getStudentLogoUrl(req, student),
-      })
-    );
+      });
+    await setCacheJson(cacheKey, profile, STUDENT_PROFILE_CACHE_TTL_SECONDS);
+
+    return res.status(200).json(profile);
   } catch (error) {
     return sendError(res, 500, error.message || "Failed to load student profile");
   }

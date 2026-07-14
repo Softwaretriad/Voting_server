@@ -13,14 +13,33 @@ import {
 import { maybeNotifyTurnoutMilestone } from "../utils/notificationService.js";
 import { refreshElectionAnalyticsSnapshot } from "../utils/electionAnalytics.js";
 import { EC_ROLE } from "../utils/ecRole.js";
+import { comparePin } from "../utils/security.js";
+
+const votingPinRequiredResponse = (res) =>
+  sendError(res, 409, "Voting PIN setup is required before voting", {
+    code: "VOTING_PIN_REQUIRED",
+    requiresVotingPinSetup: true,
+  });
 
 export const castAdminVote = async (req, res) => {
   try {
-    const { ecUserId, electionId, aspirantId } = req.body;
+    const { ecUserId, electionId, aspirantId, votingPin } = req.body;
     const resolvedEcUserId = String(ecUserId || "");
 
     if (req.ecUser._id.toString() !== resolvedEcUserId) {
       return sendError(res, 403, "You are not allowed to cast this vote");
+    }
+
+    if (!req.ecUser.votingPin) {
+      return votingPinRequiredResponse(res);
+    }
+
+    if (votingPin == null) {
+      return sendError(res, 400, "votingPin is required");
+    }
+
+    if (!(await comparePin(votingPin, req.ecUser.votingPin))) {
+      return sendError(res, 400, "Invalid voting PIN");
     }
 
     const election = await Election.findById(electionId);

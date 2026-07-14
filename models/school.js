@@ -98,9 +98,21 @@ SchoolSchema.pre("save", function preSave(next) {
     this.fullName = this.name;
   }
 
-  this.allowedEmailDomains = normalizeAllowedEmailDomains(this.allowedEmailDomains);
+  if (this.isModified("allowedEmailDomains")) {
+    this.allowedEmailDomains = normalizeAllowedEmailDomains(this.allowedEmailDomains);
+  }
+
+  if (
+    ["pending", "approved"].includes(this.registrationStatus || "approved") &&
+    normalizeAllowedEmailDomains(this.allowedEmailDomains).length === 0
+  ) {
+    return next(new Error("allowedEmailDomains must include at least one domain"));
+  }
 
   next();
 });
+
+SchoolSchema.index({ registrationStatus: 1, name: 1 });
+SchoolSchema.index({ registrationStatus: 1, fullName: 1 });
 
 export default mongoose.model("School", SchoolSchema);

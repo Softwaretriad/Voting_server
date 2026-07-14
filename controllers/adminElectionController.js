@@ -29,6 +29,8 @@ import {
 
 const allowedStatuses = new Set(["active", "scheduled", "draft", "closed"]);
 const MIN_ELECTION_START_DELAY_MS = 24 * 60 * 60 * 1000;
+const REQUIRE_ELECTION_START_DELAY =
+  String(process.env.REQUIRE_ELECTION_START_DELAY || "false").toLowerCase() === "true";
 const FREE_PLAN_ELECTION_INTERVAL_MONTHS = 2;
 
 const mapElectionResponse = (election) => ({
@@ -67,6 +69,37 @@ const normalizeCategories = (categories = []) =>
     subTitle: "",
     imageUrl: "",
   }));
+
+const normalizeCategoryTitle = (category) =>
+  String(typeof category === "string" ? category : category?.title || "")
+    .trim()
+    .toLowerCase();
+
+const getAssignedCategoryIdsAtRisk = ({ currentCategories = [], nextCategories = [] }) => {
+  const nextTitleCounts = new Map();
+  nextCategories.forEach((category) => {
+    const title = normalizeCategoryTitle(category);
+    if (!title) return;
+    nextTitleCounts.set(title, (nextTitleCounts.get(title) || 0) + 1);
+  });
+
+  const atRiskCategoryIds = [];
+  currentCategories.forEach((category) => {
+    const title = normalizeCategoryTitle(category);
+    const availableCount = nextTitleCounts.get(title) || 0;
+
+    if (availableCount > 0) {
+      nextTitleCounts.set(title, availableCount - 1);
+      return;
+    }
+
+    if (category._id) {
+      atRiskCategoryIds.push(category._id);
+    }
+  });
+
+  return atRiskCategoryIds;
+};
 
 const resolveElectionAudience = (body = {}) =>
   normalizeElectionAudience(body.audience || {
@@ -437,7 +470,7 @@ const validateElectionWindow = ({ start, end, school }) => {
   const now = new Date();
   const minimumStartTime = new Date(now.getTime() + MIN_ELECTION_START_DELAY_MS);
 
-  if (start < minimumStartTime) {
+  if (REQUIRE_ELECTION_START_DELAY && start < minimumStartTime) {
     return "startDate must be at least 24 hours in the future";
   }
 
@@ -1178,16 +1211,23 @@ export const updateAdminElection = async (req, res) => {
       if (!Array.isArray(categories) || categories.length === 0) {
         return sendError(res, 400, "categories must be a non-empty array");
       }
-      const assignedAspirants = await Aspirant.countDocuments({
-        electionId: election._id,
-        schoolId: req.schoolId,
+      const atRiskCategoryIds = getAssignedCategoryIdsAtRisk({
+        currentCategories: election.categories,
+        nextCategories: categories,
       });
-      if (assignedAspirants > 0) {
-        return sendError(
-          res,
-          409,
-          "Remove assigned aspirants before changing election categories"
-        );
+      if (atRiskCategoryIds.length > 0) {
+        const assignedAspirants = await Aspirant.countDocuments({
+          electionId: election._id,
+          schoolId: req.schoolId,
+          categoryId: { $in: atRiskCategoryIds },
+        });
+        if (assignedAspirants > 0) {
+          return sendError(
+            res,
+            409,
+            "Remove assigned aspirants before changing election categories"
+          );
+        }
       }
       election.categories = normalizeCategories(categories);
     }

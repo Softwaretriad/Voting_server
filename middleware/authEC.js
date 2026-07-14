@@ -23,7 +23,7 @@ export const protect = async (req, res, next) => {
       _id: decoded.userId,
       accountRole: ecRoleQuery(),
       sessionVersion: decoded.sessionVersion,
-    }).select("-password -votingPin");
+    }).select("-password");
     if (!ecUser) {
       return res.status(401).json({ error: "EC user not found" });
     }

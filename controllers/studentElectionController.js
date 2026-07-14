@@ -15,6 +15,11 @@ const getStudentSchoolId = (student) => student.schoolId?.toString() || null;
 const STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS = Number(
   process.env.STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS || 3
 );
+const STUDENT_ELECTION_LOCAL_CACHE_TTL_MS = Number(
+  process.env.STUDENT_ELECTION_LOCAL_CACHE_TTL_MS ||
+    Math.min(STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS * 1000, 5000)
+);
+const studentElectionListLocalCache = new Map();
 const electionListProjection = () =>
   [
     "title",
@@ -44,6 +49,62 @@ const getStudentElectionListCacheKey = ({ student, scope }) => {
   const studentId = student?._id?.toString?.() || "anonymous";
   const schoolId = getStudentSchoolId(student) || "none";
   return `student-election-list:${scope}:${schoolId}:${studentId}`;
+};
+
+const getLocalStudentElectionList = (cacheKey) => {
+  const cached = studentElectionListLocalCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    studentElectionListLocalCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached.promise;
+};
+
+const setLocalStudentElectionList = (cacheKey, promise) => {
+  if (STUDENT_ELECTION_LOCAL_CACHE_TTL_MS <= 0) {
+    return;
+  }
+
+  if (studentElectionListLocalCache.size > 5000) {
+    const oldestKey = studentElectionListLocalCache.keys().next().value;
+    if (oldestKey) {
+      studentElectionListLocalCache.delete(oldestKey);
+    }
+  }
+
+  studentElectionListLocalCache.set(cacheKey, {
+    promise,
+    expiresAt: Date.now() + STUDENT_ELECTION_LOCAL_CACHE_TTL_MS,
+  });
+};
+
+const getCachedStudentElectionList = async ({ cacheKey, build }) => {
+  const localPromise = getLocalStudentElectionList(cacheKey);
+  if (localPromise) {
+    return localPromise;
+  }
+
+  const promise = (async () => {
+    const cached = await getCacheJson(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const payload = await build();
+    await setCacheJson(cacheKey, payload, STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS);
+    return payload;
+  })().catch((error) => {
+    studentElectionListLocalCache.delete(cacheKey);
+    throw error;
+  });
+
+  setLocalStudentElectionList(cacheKey, promise);
+  return promise;
 };
 
 const toElectionCard = (election, voteCount = null) => {
@@ -211,26 +272,25 @@ export const getActiveElections = async (req, res) => {
       student: req.student,
       scope: "active",
     });
-    const cachedCards = await getCacheJson(cacheKey);
-    if (cachedCards) {
-      return res.status(200).json(cachedCards);
-    }
+    const cards = await getCachedStudentElectionList({
+      cacheKey,
+      build: async () => {
+        const schoolId = getStudentSchoolId(req.student);
+        const elections = await Election.find({
+          status: "active",
+          ...(schoolId ? { schoolId } : {}),
+        })
+          .select(electionListProjection())
+          .sort({ startTime: 1, createdAt: -1 })
+          .lean();
+        const eligibleElections = await filterEligibleElectionsForStudent({
+          elections,
+          student: req.student,
+        });
 
-    const schoolId = getStudentSchoolId(req.student);
-    const elections = await Election.find({
-      status: "active",
-      ...(schoolId ? { schoolId } : {}),
-    })
-      .select(electionListProjection())
-      .sort({ startTime: 1, createdAt: -1 })
-      .lean();
-    const eligibleElections = await filterEligibleElectionsForStudent({
-      elections,
-      student: req.student,
+        return eligibleElections.map((election) => toElectionCard(election));
+      },
     });
-
-    const cards = eligibleElections.map((election) => toElectionCard(election));
-    await setCacheJson(cacheKey, cards, STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS);
 
     return res.status(200).json(cards);
   } catch (error) {
@@ -245,55 +305,54 @@ export const getElectionSchedule = async (req, res) => {
       student: req.student,
       scope: "schedule",
     });
-    const cachedSchedule = await getCacheJson(cacheKey);
-    if (cachedSchedule) {
-      return res.status(200).json(cachedSchedule);
-    }
+    const schedule = await getCachedStudentElectionList({
+      cacheKey,
+      build: async () => {
+        const schoolId = getStudentSchoolId(req.student);
+        const elections = await Election.find({
+          status: "scheduled",
+          ...(schoolId ? { schoolId } : {}),
+        })
+          .select(
+            [
+              "title",
+              "startTime",
+              "endTime",
+              "schoolId",
+              "imageUrl",
+              "audience",
+              "categories",
+            ]
+              .filter(Boolean)
+              .join(" ")
+          )
+          .sort({ startTime: 1 })
+          .lean();
+        const eligibleElections = await filterEligibleElectionsForStudent({
+          elections,
+          student: req.student,
+        });
 
-    const schoolId = getStudentSchoolId(req.student);
-    const elections = await Election.find({
-      status: "scheduled",
-      ...(schoolId ? { schoolId } : {}),
-    })
-      .select(
-        [
-          "title",
-          "startTime",
-          "endTime",
-          "schoolId",
-          "imageUrl",
-          "audience",
-          "categories",
-        ]
-          .filter(Boolean)
-          .join(" ")
-      )
-      .sort({ startTime: 1 })
-      .lean();
-    const eligibleElections = await filterEligibleElectionsForStudent({
-      elections,
-      student: req.student,
+        return eligibleElections.map((election) => ({
+          _id: election._id.toString(),
+          electionTitle: election.title,
+          status: "scheduled",
+          listScope: "schedule",
+          isScheduled: true,
+          isActive: false,
+          imageUrl: election.imageUrl || "",
+          scheduledDate: election.startTime
+            ? election.startTime.toISOString()
+            : election.endTime.toISOString(),
+          scheduledTime: new Intl.DateTimeFormat("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+            timeZone: "UTC",
+          }).format(election.startTime || election.endTime),
+        }));
+      },
     });
-
-    const schedule = eligibleElections.map((election) => ({
-      _id: election._id.toString(),
-      electionTitle: election.title,
-      status: "scheduled",
-      listScope: "schedule",
-      isScheduled: true,
-      isActive: false,
-      imageUrl: election.imageUrl || "",
-      scheduledDate: election.startTime
-        ? election.startTime.toISOString()
-        : election.endTime.toISOString(),
-      scheduledTime: new Intl.DateTimeFormat("en-GB", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-        timeZone: "UTC",
-      }).format(election.startTime || election.endTime),
-    }));
-    await setCacheJson(cacheKey, schedule, STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS);
 
     return res.status(200).json(schedule);
   } catch (error) {
@@ -366,26 +425,25 @@ export const getElectionResults = async (req, res) => {
       student: req.student,
       scope: "results",
     });
-    const cachedCards = await getCacheJson(cacheKey);
-    if (cachedCards) {
-      return res.status(200).json(cachedCards);
-    }
+    const cards = await getCachedStudentElectionList({
+      cacheKey,
+      build: async () => {
+        const schoolId = getStudentSchoolId(req.student);
+        const elections = await Election.find({
+          status: { $in: ["active", "ended", "closed"] },
+          ...(schoolId ? { schoolId } : {}),
+        })
+          .select(electionListProjection())
+          .sort({ startTime: -1 })
+          .lean();
+        const eligibleElections = await filterEligibleElectionsForStudent({
+          elections,
+          student: req.student,
+        });
 
-    const schoolId = getStudentSchoolId(req.student);
-    const elections = await Election.find({
-      status: { $in: ["active", "ended", "closed"] },
-      ...(schoolId ? { schoolId } : {}),
-    })
-      .select(electionListProjection())
-      .sort({ startTime: -1 })
-      .lean();
-    const eligibleElections = await filterEligibleElectionsForStudent({
-      elections,
-      student: req.student,
+        return eligibleElections.map((election) => toElectionCard(election));
+      },
     });
-
-    const cards = eligibleElections.map((election) => toElectionCard(election));
-    await setCacheJson(cacheKey, cards, STUDENT_ELECTION_LIST_CACHE_TTL_SECONDS);
 
     return res.status(200).json(cards);
   } catch (error) {

@@ -59,5 +59,8 @@ VoteSchema.index(
 );
 VoteSchema.index({ electionId: 1, categoryKey: 1, createdAt: 1 });
 VoteSchema.index({ electionId: 1, voterType: 1, voterId: 1 });
+VoteSchema.index({ schoolId: 1, voterId: 1, createdAt: -1 });
+VoteSchema.index({ schoolId: 1, electionId: 1, createdAt: -1 });
+VoteSchema.index({ aspirantId: 1, electionId: 1 });
 
 export default mongoose.models.Vote || mongoose.model("Vote", VoteSchema);

@@ -32,6 +32,38 @@ import {
 const isSupportedSubscriptionTerm = (term) =>
   Boolean(subscriptionTerms[String(term || "").trim()]);
 
+const publicCatalogCacheTtlMs = Math.max(
+  0,
+  Number(process.env.PUBLIC_CATALOG_CACHE_TTL_MS || 30_000)
+);
+const publicCatalogCache = new Map();
+
+const approvedSchoolFilter = {
+  $or: [
+    { registrationStatus: "approved" },
+    { registrationStatus: { $exists: false } },
+  ],
+};
+
+const getCachedPublicCatalog = async (key, loader) => {
+  if (publicCatalogCacheTtlMs === 0) {
+    return loader();
+  }
+
+  const cached = publicCatalogCache.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const value = await loader();
+  publicCatalogCache.set(key, {
+    value,
+    expiresAt: now + publicCatalogCacheTtlMs,
+  });
+  return value;
+};
+
 export const createSchool = async (req, res) => {
   const {
     name,
@@ -40,6 +72,7 @@ export const createSchool = async (req, res) => {
     logoUploadId,
     email,
     allowedEmailDomains,
+    allowedDomains,
     plan,
     subscriptionTerm,
     admin,
@@ -65,7 +98,9 @@ export const createSchool = async (req, res) => {
     const selectedPlan = getPlanConfig(effectivePlan);
     const selectedTerm = getSubscriptionTermConfig(effectiveTerm);
     const normalizedAdminEmail = normalizeEmail(admin?.email);
-    const normalizedAllowedDomains = normalizeAllowedEmailDomains(allowedEmailDomains);
+    const normalizedAllowedDomains = normalizeAllowedEmailDomains(
+      allowedEmailDomains !== undefined ? allowedEmailDomains : allowedDomains
+    );
     const superAdmin = await resolveSuperAdminFromRequest(req);
     const isDeveloperOnboarding =
       Boolean(superAdmin) || isSchoolRegistrationReviewRequest(req);
@@ -365,13 +400,10 @@ export const updateSchoolSubscription = async (req, res) => {
 
 export const getAllSchools = async (req, res) => {
   try {
-    const schools = await School.find({
-      $or: [
-        { registrationStatus: "approved" },
-        { registrationStatus: { $exists: false } },
-      ],
-    }).select(
-      "fullName shortName logoUrl name allowedEmailDomains"
+    const schools = await getCachedPublicCatalog("schools:list", () =>
+      School.find(approvedSchoolFilter)
+        .select("fullName shortName logoUrl name allowedEmailDomains")
+        .lean()
     );
 
     return res.status(200).json(
@@ -390,13 +422,16 @@ export const getAllSchools = async (req, res) => {
 
 export const getFacultiesBySchool = async (req, res) => {
   try {
-    const school = await School.findOne({
-      _id: req.params.schoolId,
-      $or: [
-        { registrationStatus: "approved" },
-        { registrationStatus: { $exists: false } },
-      ],
-    }).select("faculties");
+    const school = await getCachedPublicCatalog(
+      `schools:${req.params.schoolId}:faculties`,
+      () =>
+        School.findOne({
+          _id: req.params.schoolId,
+          ...approvedSchoolFilter,
+        })
+          .select("faculties")
+          .lean()
+    );
 
     if (!school) {
       return sendError(res, 404, "School not found");
@@ -415,22 +450,29 @@ export const getFacultiesBySchool = async (req, res) => {
 
 export const getNationalitiesBySchool = async (req, res) => {
   try {
-    const school = await School.findOne({
-      _id: req.params.schoolId,
-      $or: [
-        { registrationStatus: "approved" },
-        { registrationStatus: { $exists: false } },
-      ],
-    }).select("_id");
+    const school = await getCachedPublicCatalog(
+      `schools:${req.params.schoolId}:exists`,
+      () =>
+        School.findOne({
+          _id: req.params.schoolId,
+          ...approvedSchoolFilter,
+        })
+          .select("_id")
+          .lean()
+    );
 
     if (!school) {
       return sendError(res, 404, "School not found");
     }
 
-    const nationalities = await Student.distinct("nationality", {
-      schoolId: school._id,
-      nationality: { $type: "string", $ne: "" },
-    });
+    const nationalities = await getCachedPublicCatalog(
+      `schools:${req.params.schoolId}:nationalities`,
+      () =>
+        Student.distinct("nationality", {
+          schoolId: school._id,
+          nationality: { $type: "string", $ne: "" },
+        })
+    );
 
     const sortedNationalities = nationalities
       .map((nationality) => String(nationality || "").trim())
@@ -450,19 +492,24 @@ export const getNationalitiesBySchool = async (req, res) => {
 
 export const getProgrammesByFaculty = async (req, res) => {
   try {
-    const school = await School.findOne({
-      _id: req.params.schoolId,
-      $or: [
-        { registrationStatus: "approved" },
-        { registrationStatus: { $exists: false } },
-      ],
-    }).select("faculties");
+    const school = await getCachedPublicCatalog(
+      `schools:${req.params.schoolId}:faculties`,
+      () =>
+        School.findOne({
+          _id: req.params.schoolId,
+          ...approvedSchoolFilter,
+        })
+          .select("faculties")
+          .lean()
+    );
 
     if (!school) {
       return sendError(res, 404, "School not found");
     }
 
-    const faculty = school.faculties.id(req.params.facultyId);
+    const faculty = (school.faculties || []).find(
+      (item) => item._id?.toString() === req.params.facultyId
+    );
     if (!faculty) {
       return sendError(res, 404, "Faculty not found");
     }

@@ -3249,7 +3249,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"ecUserId\": \"{{ecUserId}}\",\n  \"electionId\": \"{{electionId}}\",\n  \"aspirantId\": \"{{aspirantId}}\"\n}"
+              "raw": "{\n  \"ecUserId\": \"{{ecUserId}}\",\n  \"electionId\": \"{{electionId}}\",\n  \"aspirantId\": \"{{aspirantId}}\",\n  \"votingPin\": {{studentVotingPin}}\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/ec/votes/cast",

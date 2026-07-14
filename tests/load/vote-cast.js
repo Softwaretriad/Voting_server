@@ -4,7 +4,7 @@ import exec from "k6/execution";
 import { Counter, Rate, Trend } from "k6/metrics";
 
 const BASE_URL = (__ENV.BASE_URL || "http://localhost:5000").replace(/\/$/, "");
-const CONFIRM = __ENV.LOAD_TEST_CONFIRM || "";
+const CONFIRM = __ENV.LOAD_TEST_CONFIRM || "cast-votes";
 const ELECTION_ID = __ENV.ELECTION_ID || "";
 const ASPIRANT_ID = __ENV.ASPIRANT_ID || "";
 const DEFAULT_PIN = __ENV.STUDENT_VOTING_PIN || "1234";
@@ -36,41 +36,54 @@ export const options = {
   },
 };
 
-function parseVoters() {
-  if (__ENV.VOTERS_JSON) {
+function openVotersFile(path) {
+  const normalizedPath = String(path || "").replace(/\\/g, "/");
+  const candidates = [
+    normalizedPath,
+    `../../${normalizedPath}`,
+  ];
+
+  for (const candidate of candidates) {
     try {
-      const voters = JSON.parse(__ENV.VOTERS_JSON);
+      return open(candidate).replace(/^\uFEFF/, "");
+    } catch {
+      // Try the next path style. k6 resolves relative paths from the script file.
+    }
+  }
+
+  fail("VOTERS_JSON_FILE must point to a readable JSON array.");
+  return "";
+}
+
+function parseVoters() {
+  const votersJson = (
+    __ENV.VOTERS_JSON ||
+    (__ENV.VOTERS_JSON_FILE ? openVotersFile(__ENV.VOTERS_JSON_FILE) : "")
+  ).replace(/^\uFEFF/, "");
+  if (votersJson) {
+    try {
+      const voters = JSON.parse(votersJson);
       if (Array.isArray(voters) && voters.length > 0) {
         return voters.map((voter) => ({
           email: voter.email || "",
-          password: voter.password || "",
           studentId: voter.studentId || "",
           token: voter.token || "",
           votingPin: String(voter.votingPin || voter.pin || DEFAULT_PIN),
         }));
       }
     } catch {
-      fail("VOTERS_JSON must be a JSON array of voter objects.");
+      fail("VOTERS_JSON or VOTERS_JSON_FILE must be a JSON array of voter objects.");
     }
   }
 
   return [
     {
       email: __ENV.STUDENT_EMAIL || "",
-      password: __ENV.STUDENT_PASSWORD || "",
       studentId: __ENV.STUDENT_ID || "",
       token: __ENV.STUDENT_TOKEN || "",
       votingPin: DEFAULT_PIN,
     },
   ];
-}
-
-function json(res) {
-  try {
-    return res.json();
-  } catch {
-    return null;
-  }
 }
 
 function requireVoteTestInputs() {
@@ -82,12 +95,10 @@ function requireVoteTestInputs() {
     fail("Set ELECTION_ID and ASPIRANT_ID for the test election target.");
   }
 
-  const missingCredential = VOTERS.find(
-    (voter) => !voter.token && (!voter.email || !voter.password)
-  );
+  const missingCredential = VOTERS.find((voter) => !voter.token || !voter.studentId);
   if (missingCredential) {
     fail(
-      "Provide STUDENT_TOKEN/STUDENT_ID, STUDENT_EMAIL/STUDENT_PASSWORD, or VOTERS_JSON with token/studentId or email/password."
+      "Provide STUDENT_TOKEN/STUDENT_ID or VOTERS_JSON entries with token and studentId. Password login is retired."
     );
   }
 }
@@ -96,49 +107,10 @@ export function setup() {
   requireVoteTestInputs();
 
   const sessions = VOTERS.map((voter) => {
-    if (voter.token && voter.studentId) {
-      return {
-        email: voter.email,
-        token: voter.token,
-        studentId: voter.studentId,
-        votingPin: voter.votingPin,
-      };
-    }
-
-    const loginRes = http.post(
-      `${BASE_URL}/auth/login`,
-      JSON.stringify({
-        email: voter.email,
-        password: voter.password,
-      }),
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-      },
-    );
-
-    check(loginRes, {
-      "login status is 200": (res) => res.status === 200,
-    });
-
-    if (loginRes.status !== 200) {
-      fail(`Login failed for ${voter.email}`);
-    }
-
-    const login = json(loginRes) || {};
-    const token = login.accessToken || login.token || "";
-    const studentId = voter.studentId || login.user?.id || login.user?._id || "";
-
-    if (!token || !studentId) {
-      fail(`Login response for ${voter.email} did not include token and student id.`);
-    }
-
     return {
       email: voter.email,
-      token,
-      studentId,
+      token: voter.token,
+      studentId: voter.studentId,
       votingPin: voter.votingPin,
     };
   });

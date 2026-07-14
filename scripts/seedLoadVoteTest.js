@@ -10,7 +10,6 @@ import { signAccessToken } from "../utils/studentAuth.js";
 dotenv.config();
 
 const VOTER_COUNT = Number(process.env.LOAD_VOTE_SEED_VOTERS || 25);
-const PASSWORD = process.env.LOAD_VOTE_SEED_PASSWORD || "LoadTest@123";
 const VOTING_PIN = String(process.env.LOAD_VOTE_SEED_PIN || "1234");
 
 const makeStamp = () => new Date().toISOString().replace(/[-:.TZ]/g, "");
@@ -44,7 +43,6 @@ const seed = async () => {
       lastName: `Voter${index + 1}`,
       gender: index % 2 === 0 ? "female" : "male",
       email: `load-voter-${stamp}-${index + 1}@myunivote.test`,
-      password: PASSWORD,
       phone: `+2332401${String(index + 1).padStart(5, "0")}`,
       schoolId: school._id,
       universityFullName: school.fullName,
@@ -53,6 +51,7 @@ const seed = async () => {
       programOfStudy: "BSc Computer Science",
       votingPin: VOTING_PIN,
       isEmailVerified: true,
+      authProvider: "imported",
     });
   }
 
@@ -71,7 +70,6 @@ const seed = async () => {
     status: "active",
     audience: { scope: "all_students" },
     categories: [{ title: "SRC President", subTitle: school.shortName }],
-    candidates: [{ name: "Load Candidate A", position: "SRC President" }],
     totalVotes: 0,
   });
 
@@ -95,7 +93,6 @@ const seed = async () => {
 
   const votersJson = createdStudents.map((student) => ({
     email: student.email,
-    password: PASSWORD,
     studentId: student._id.toString(),
     token: signAccessToken(student),
     pin: VOTING_PIN,

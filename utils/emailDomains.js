@@ -1,11 +1,13 @@
 export const normalizeAllowedEmailDomains = (domains = []) => {
-  if (!Array.isArray(domains)) {
-    return [];
-  }
+  const domainList = Array.isArray(domains)
+    ? domains
+    : String(domains || "")
+        .split(",")
+        .map((domain) => domain.trim());
 
   return [
     ...new Set(
-      domains
+      domainList
         .map((domain) =>
           String(domain || "")
             .trim()

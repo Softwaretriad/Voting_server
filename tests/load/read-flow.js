@@ -3,10 +3,18 @@ import { check, fail, group, sleep } from "k6";
 import { Trend } from "k6/metrics";
 
 const BASE_URL = (__ENV.BASE_URL || "http://localhost:5000").replace(/\/$/, "");
-const STUDENT_EMAIL = __ENV.STUDENT_EMAIL || "10420742@wiuc-ghana.edu.gh";
-const STUDENT_PASSWORD = __ENV.STUDENT_PASSWORD || "Nwanna123$";
-const WARMUP_VUS = Number(__ENV.WARMUP_VUS || 20);
-const TARGET_VUS = Number(__ENV.TARGET_VUS || 50);
+const STUDENT_TOKEN = __ENV.STUDENT_TOKEN || "";
+const STUDENT_ID = __ENV.STUDENT_ID || "";
+const VOTERS_JSON_FILE = __ENV.VOTERS_JSON_FILE || "";
+const VOTER_INDEX = Math.max(0, Number(__ENV.VOTER_INDEX || 0));
+const SCHOOL_ID = __ENV.SCHOOL_ID || "";
+const WARMUP_VUS = Number(__ENV.WARMUP_VUS || 250);
+const TARGET_VUS = Number(__ENV.TARGET_VUS || 500);
+const DEFAULT_P95_THRESHOLD_MS =
+  TARGET_VUS <= 200 ? 800 : TARGET_VUS <= 500 ? 2500 : 8000;
+const READ_P95_THRESHOLD_MS = Number(
+  __ENV.READ_P95_THRESHOLD_MS || DEFAULT_P95_THRESHOLD_MS
+);
 
 const schoolsLatency = new Trend("schools_latency");
 const facultiesLatency = new Trend("faculties_latency");
@@ -28,13 +36,13 @@ export const options = {
   },
   thresholds: {
     http_req_failed: ["rate<0.02"],
-    http_req_duration: ["p(95)<800"],
-    active_elections_latency: ["p(95)<800"],
-    schools_latency: ["p(95)<800"],
-    faculties_latency: ["p(95)<800"],
-    profile_latency: ["p(95)<800"],
-    schedule_latency: ["p(95)<800"],
-    results_latency: ["p(95)<800"],
+    http_req_duration: [`p(95)<${READ_P95_THRESHOLD_MS}`],
+    active_elections_latency: [`p(95)<${READ_P95_THRESHOLD_MS}`],
+    schools_latency: [`p(95)<${READ_P95_THRESHOLD_MS}`],
+    faculties_latency: [`p(95)<${READ_P95_THRESHOLD_MS}`],
+    profile_latency: [`p(95)<${READ_P95_THRESHOLD_MS}`],
+    schedule_latency: [`p(95)<${READ_P95_THRESHOLD_MS}`],
+    results_latency: [`p(95)<${READ_P95_THRESHOLD_MS}`],
   },
 };
 
@@ -54,8 +62,46 @@ function authHeaders(token) {
       }
     : {
         Accept: "application/json",
-      };
+    };
 }
+
+function openVotersFile(path) {
+  const normalizedPath = String(path || "").replace(/\\/g, "/");
+  const candidates = [
+    normalizedPath,
+    `../../${normalizedPath}`,
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      return open(candidate).replace(/^\uFEFF/, "");
+    } catch {
+      // Try the next path style. k6 resolves relative paths from the script file.
+    }
+  }
+
+  fail("VOTERS_JSON_FILE must point to a readable JSON array.");
+  return "";
+}
+
+function readSeedVoter() {
+  if (!VOTERS_JSON_FILE) {
+    return null;
+  }
+
+  try {
+    const voters = JSON.parse(openVotersFile(VOTERS_JSON_FILE));
+    if (!Array.isArray(voters) || voters.length === 0) {
+      fail("VOTERS_JSON_FILE must contain a non-empty JSON array.");
+    }
+    return voters[Math.min(VOTER_INDEX, voters.length - 1)];
+  } catch {
+    fail("VOTERS_JSON_FILE must point to a readable JSON array.");
+  }
+  return null;
+}
+
+const SEED_VOTER = VOTERS_JSON_FILE && (!STUDENT_TOKEN || !STUDENT_ID) ? readSeedVoter() : null;
 
 export function setup() {
   const schoolsRes = http.get(`${BASE_URL}/schools`, {
@@ -68,39 +114,11 @@ export function setup() {
 
   const schools = json(schoolsRes);
   const firstSchool = Array.isArray(schools) ? schools[0] : null;
-
   const state = {
-    schoolId: firstSchool?.id || firstSchool?._id || "",
-    accessToken: "",
-    userId: "",
+    schoolId: SCHOOL_ID || firstSchool?.id || firstSchool?._id || "",
+    accessToken: STUDENT_TOKEN || SEED_VOTER?.token || "",
+    userId: STUDENT_ID || SEED_VOTER?.studentId || "",
   };
-
-  if (!STUDENT_EMAIL || !STUDENT_PASSWORD) {
-    return state;
-  }
-
-  const loginRes = http.post(
-    `${BASE_URL}/auth/login`,
-    JSON.stringify({
-      email: STUDENT_EMAIL,
-      password: STUDENT_PASSWORD,
-    }),
-    {
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-    },
-  );
-
-  check(loginRes, {
-    "login succeeded": (res) => res.status === 200,
-  });
-
-  const login = json(loginRes) || {};
-  state.accessToken = login.accessToken || login.token || "";
-  state.userId = login.user?.id || login.user?._id || "";
-  state.schoolId = login.user?.schoolId || state.schoolId;
 
   return state;
 }

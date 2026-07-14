@@ -37,6 +37,10 @@ const AspirantSchema = new mongoose.Schema(
 );
 
 AspirantSchema.index({ electionId: 1, schoolId: 1, categoryId: 1 });
+AspirantSchema.index({ electionId: 1, schoolId: 1, name: 1 });
+AspirantSchema.index({ schoolId: 1, electionId: 1, electoralCategory: 1, name: 1 });
+AspirantSchema.index({ schoolId: 1, categoryId: 1, voteCount: -1, name: 1 });
+AspirantSchema.index({ schoolId: 1, electoralCategory: 1, voteCount: -1, name: 1 });
 
 export default mongoose.models.Aspirant ||
   mongoose.model("Aspirant", AspirantSchema);

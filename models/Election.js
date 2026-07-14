@@ -56,5 +56,7 @@ const ElectionSchema = new mongoose.Schema({
 
 ElectionSchema.index({ schoolId: 1, status: 1, startTime: 1 });
 ElectionSchema.index({ schoolId: 1, status: 1, createdAt: -1 });
+ElectionSchema.index({ schoolId: 1, status: 1, endTime: 1 });
+ElectionSchema.index({ status: 1, schoolId: 1, startTime: -1 });
 
 export default mongoose.model("Election", ElectionSchema);

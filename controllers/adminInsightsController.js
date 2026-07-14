@@ -301,6 +301,10 @@ export const getAdminDashboard = async (req, res) => {
         const { registeredVoters } = resolveRegisteredVoterBase({
           audienceStudents,
         });
+        const turnoutPercentage =
+          registeredVoters > 0
+            ? Number(((accreditedVoters / registeredVoters) * 100).toFixed(1))
+            : 0;
 
         return {
           _id: election._id.toString(),
@@ -313,6 +317,7 @@ export const getAdminDashboard = async (req, res) => {
           ballotsCast,
           totalBallotsCast: ballotsCast,
           registeredVoters,
+          turnoutPercentage,
           startDate: election.startTime?.toISOString() || null,
           endDate: election.endTime?.toISOString() || null,
         };

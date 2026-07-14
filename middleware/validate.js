@@ -53,9 +53,10 @@ export const validators = {
   castEcVote: (req) =>
     req.body?.ecUserId &&
     req.body?.electionId &&
-    req.body?.aspirantId
+    req.body?.aspirantId &&
+    isFourDigitPin(req.body?.votingPin)
       ? null
-      : "ecUserId, electionId, and aspirantId are required",
+      : "ecUserId, electionId, aspirantId, and a valid 4-digit votingPin are required",
   inviteAdminMembers: (req) => {
     const members = req.body?.members;
     if (!Array.isArray(members) || members.length === 0) {
