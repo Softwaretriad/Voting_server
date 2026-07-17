@@ -2,13 +2,22 @@ import { Server as SocketIOServer } from "socket.io";
 import mongoose from "mongoose";
 import Student from "../models/Student.js";
 import { EC_ROLE, ecRoleQuery, isEcRole } from "./ecRole.js";
-import { createRedisClient, isRedisUrlConfigured } from "./redisClient.js";
+import {
+  createRedisClient,
+  getRedisClient,
+  isRedisUrlConfigured,
+} from "./redisClient.js";
 import { verifyToken } from "./studentAuth.js";
 
 let io = null;
 let monitorPayloadBuilder = null;
 let studentElectionPayloadBuilder = null;
 let socketRedisAdapterEnabled = false;
+let socketEventSubscriberEnabled = false;
+const SOCKET_EVENT_CHANNEL = process.env.SOCKET_EVENT_CHANNEL || "myunivote:socket-events";
+const STUDENT_ELECTION_JOIN_TIMEOUT_MS = Number(
+  process.env.STUDENT_ELECTION_JOIN_TIMEOUT_MS || 10000
+);
 const isSocketDebugEnabled = () => process.env.SOCKET_DEBUG === "true";
 const socketDebug = (...args) => {
   if (isSocketDebugEnabled()) {
@@ -40,6 +49,23 @@ const isDatabaseReady = () => mongoose.connection.readyState === 1;
 const getSocketStudentId = (socket) =>
   socket.data.user.studentId || (isEcRole(socket.data.user.role) ? socket.data.user.userId : null);
 
+const withTimeout = async (promise, timeoutMs, message) => {
+  let timeoutHandle = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      const error = new Error(message);
+      error.statusCode = 504;
+      reject(error);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+};
+
 export const registerMonitorPayloadBuilder = (builder) => {
   monitorPayloadBuilder = builder;
 };
@@ -57,6 +83,7 @@ export const getSocketHealth = () => ({
   socketConnectionCount: io?.engine?.clientsCount || 0,
   redisAdapterConfigured: isRedisUrlConfigured(),
   redisAdapterEnabled: socketRedisAdapterEnabled,
+  socketEventSubscriberEnabled,
 });
 
 const attachRedisSocketAdapter = async (socketServer) => {
@@ -89,6 +116,122 @@ const attachRedisSocketAdapter = async (socketServer) => {
   }
 };
 
+const emitLocalSocketEvent = ({ type, eventName, payload, studentIds = [], schoolId }) => {
+  if (!io || !payload) {
+    return false;
+  }
+
+  if (type === "notification") {
+    const normalizedRecipientId = String(payload.recipientId || "").trim();
+    if (!normalizedRecipientId) {
+      return false;
+    }
+
+    if (payload.recipientType === "student") {
+      io.to(getStudentNotificationRoom(normalizedRecipientId)).emit(
+        "student:notification:new",
+        payload.notification
+      );
+      return true;
+    }
+
+    if (payload.recipientType === EC_ROLE) {
+      io.to(getEcNotificationRoom(normalizedRecipientId)).emit(
+        "ec:notification:new",
+        payload.notification
+      );
+      return true;
+    }
+
+    return false;
+  }
+
+  if (!eventName) {
+    return false;
+  }
+
+  if (type === "studentScoped") {
+    const uniqueStudentIds = Array.from(
+      new Set(studentIds.map((id) => String(id || "").trim()).filter(Boolean))
+    );
+    if (uniqueStudentIds.length === 0) {
+      return false;
+    }
+
+    uniqueStudentIds.forEach((studentId) => {
+      io.to(getStudentUserRoom(studentId)).emit(eventName, payload);
+    });
+    return true;
+  }
+
+  if (type === "ecSchool") {
+    const normalizedSchoolId = String(schoolId || "").trim();
+    if (!normalizedSchoolId) {
+      return false;
+    }
+
+    io.to(getEcSchoolRoom(normalizedSchoolId)).emit(eventName, payload);
+    return true;
+  }
+
+  if (type === "ecUser") {
+    const normalizedEcUserId = String(payload.ecUserId || "").trim();
+    if (!normalizedEcUserId) {
+      return false;
+    }
+
+    io.to(getEcNotificationRoom(normalizedEcUserId)).emit(eventName, payload);
+    io.to(getStudentUserRoom(normalizedEcUserId)).emit(eventName, payload);
+    return true;
+  }
+
+  return false;
+};
+
+const publishSocketEvent = async (event) => {
+  if (!isRedisUrlConfigured()) {
+    return false;
+  }
+
+  const client = await getRedisClient();
+  if (!client) {
+    return false;
+  }
+
+  await client.publish(SOCKET_EVENT_CHANNEL, JSON.stringify(event));
+  return true;
+};
+
+const handlePublishedSocketEvent = async (event) => {
+  if (event?.type === "ecMonitorUpdate") {
+    return emitLocalElectionMonitorUpdate(String(event.electionId || "").trim());
+  }
+
+  return emitLocalSocketEvent(event);
+};
+
+const attachRedisSocketEventSubscriber = async () => {
+  if (!isRedisUrlConfigured() || socketEventSubscriberEnabled) {
+    return;
+  }
+
+  const subscriber = await createRedisClient();
+  if (!subscriber) {
+    return;
+  }
+
+  await subscriber.subscribe(SOCKET_EVENT_CHANNEL, async (message) => {
+    try {
+      const event = JSON.parse(message);
+      await handlePublishedSocketEvent(event);
+    } catch (error) {
+      console.warn("Socket event subscriber ignored invalid message:", error.message);
+    }
+  });
+  socketEventSubscriberEnabled = true;
+  console.log("Socket event Redis subscriber enabled");
+};
+
 export const attachLiveMonitorSocketServer = (httpServer) => {
   io = new SocketIOServer(httpServer, {
     cors: {
@@ -99,6 +242,10 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
   attachRedisSocketAdapter(io).catch((error) => {
     socketRedisAdapterEnabled = false;
     console.warn("Socket.IO Redis adapter setup failed:", error.message);
+  });
+  attachRedisSocketEventSubscriber().catch((error) => {
+    socketEventSubscriberEnabled = false;
+    console.warn("Socket event subscriber setup failed:", error.message);
   });
 
   io.use(async (socket, next) => {
@@ -263,7 +410,21 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
           return;
         }
 
-        const payload = await studentElectionPayloadBuilder({
+        socketDebug("student-payload-build-start", {
+          socketId: socket.id,
+          electionId: normalizedElectionId,
+          studentId: subscriberStudentId,
+        });
+        const payload = await withTimeout(
+          studentElectionPayloadBuilder({
+            electionId: normalizedElectionId,
+            studentId: subscriberStudentId,
+          }),
+          STUDENT_ELECTION_JOIN_TIMEOUT_MS,
+          "Timed out while loading election updates"
+        );
+        socketDebug("student-payload-build-complete", {
+          socketId: socket.id,
           electionId: normalizedElectionId,
           studentId: subscriberStudentId,
         });
@@ -275,6 +436,13 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
         });
         socket.emit("student:election:update", payload);
       } catch (error) {
+        socketDebug("student-join-failed", {
+          socketId: socket.id,
+          electionId: normalizedElectionId,
+          studentId: subscriberStudentId,
+          message: error.message,
+          statusCode: error.statusCode || 500,
+        });
         socket.emit("student:election:error", {
           message: error.message || "Unable to subscribe to election updates",
           statusCode: error.statusCode || 500,
@@ -293,17 +461,8 @@ export const attachLiveMonitorSocketServer = (httpServer) => {
   return io;
 };
 
-export const emitElectionMonitorUpdate = async (electionId) => {
-  if (!io || !monitorPayloadBuilder) {
-    return false;
-  }
-
-  if (!isDatabaseReady()) {
-    return false;
-  }
-
-  const normalizedElectionId = String(electionId || "").trim();
-  if (!normalizedElectionId) {
+const emitLocalElectionMonitorUpdate = async (normalizedElectionId) => {
+  if (!normalizedElectionId || !io || !monitorPayloadBuilder || !isDatabaseReady()) {
     return false;
   }
 
@@ -352,14 +511,43 @@ export const emitElectionMonitorUpdate = async (electionId) => {
   }
 };
 
+export const emitElectionMonitorUpdate = async (electionId) => {
+  const normalizedElectionId = String(electionId || "").trim();
+  if (!normalizedElectionId) {
+    return false;
+  }
+
+  if (await emitLocalElectionMonitorUpdate(normalizedElectionId)) {
+    return true;
+  }
+
+  return publishSocketEvent({
+    type: "ecMonitorUpdate",
+    electionId: normalizedElectionId,
+  });
+};
+
 export const emitNotification = async ({ recipientType, recipientId, payload }) => {
-  if (!io || !recipientType || !recipientId || !payload) {
+  if (!recipientType || !recipientId || !payload) {
     return false;
   }
 
   const normalizedRecipientId = String(recipientId || "").trim();
   if (!normalizedRecipientId) {
     return false;
+  }
+
+  const event = {
+    type: "notification",
+    payload: {
+      recipientType,
+      recipientId: normalizedRecipientId,
+      notification: payload,
+    },
+  };
+
+  if (!io) {
+    return publishSocketEvent(event);
   }
 
   if (recipientType === "student") {
@@ -378,7 +566,7 @@ export const emitNotification = async ({ recipientType, recipientId, payload }) 
     return true;
   }
 
-  return false;
+  return publishSocketEvent(event);
 };
 
 export const emitStudentScopedEvent = async ({
@@ -386,23 +574,22 @@ export const emitStudentScopedEvent = async ({
   studentIds = [],
   payload,
 }) => {
-  if (!io || !eventName || !payload) {
+  if (!eventName || !payload) {
     return false;
   }
 
-  const uniqueStudentIds = Array.from(
-    new Set(studentIds.map((id) => String(id || "").trim()).filter(Boolean))
-  );
+  const event = {
+    type: "studentScoped",
+    eventName,
+    studentIds,
+    payload,
+  };
 
-  if (uniqueStudentIds.length === 0) {
-    return false;
+  if (emitLocalSocketEvent(event)) {
+    return true;
   }
 
-  uniqueStudentIds.forEach((studentId) => {
-    io.to(getStudentUserRoom(studentId)).emit(eventName, payload);
-  });
-
-  return true;
+  return publishSocketEvent(event);
 };
 
 export const emitAdminSchoolEvent = async ({
@@ -410,10 +597,41 @@ export const emitAdminSchoolEvent = async ({
   schoolId,
   payload,
 }) => {
-  if (!io || !eventName || !schoolId || !payload) {
+  if (!eventName || !schoolId || !payload) {
     return false;
   }
 
-  io.to(getEcSchoolRoom(String(schoolId))).emit(eventName, payload);
-  return true;
+  const event = {
+    type: "ecSchool",
+    eventName,
+    schoolId,
+    payload,
+  };
+
+  if (emitLocalSocketEvent(event)) {
+    return true;
+  }
+
+  return publishSocketEvent(event);
+};
+
+export const emitEcUserEvent = async ({ eventName, ecUserId, payload }) => {
+  if (!eventName || !ecUserId || !payload) {
+    return false;
+  }
+
+  const event = {
+    type: "ecUser",
+    eventName,
+    payload: {
+      ...payload,
+      ecUserId: String(ecUserId),
+    },
+  };
+
+  if (emitLocalSocketEvent(event)) {
+    return true;
+  }
+
+  return publishSocketEvent(event);
 };

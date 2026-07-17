@@ -452,6 +452,7 @@ const buildStudentImportBulkOperations = async ({
   normalizedRows,
   existingByEmail,
   existingByStudentId,
+  existingSchoolIdSet,
 }) => {
   const studentOps = [];
   const schoolStudentRecordOps = [];
@@ -478,7 +479,11 @@ const buildStudentImportBulkOperations = async ({
       continue;
     }
 
-    if (student && student.schoolId?.toString() !== school._id.toString()) {
+    if (
+      student &&
+      student.schoolId?.toString() !== school._id.toString() &&
+      existingSchoolIdSet.has(student.schoolId?.toString())
+    ) {
       skippedRows.push({
         rowNumber: row.rowNumber,
         reason: "Email already belongs to a different school",
@@ -633,6 +638,23 @@ const processStudentRegisterImport = async ({
       normalizedRows,
       existingByEmail,
       existingByStudentId,
+      existingSchoolIdSet: new Set(
+        (
+          await School.find({
+            _id: {
+              $in: Array.from(
+                new Set(
+                  existingByEmailMatches
+                    .map((student) => student.schoolId?.toString())
+                    .filter((id) => id && id !== school._id.toString())
+                )
+              ),
+            },
+          })
+            .select("_id")
+            .lean()
+        ).map((existingSchool) => existingSchool._id.toString())
+      ),
     });
 
     const skippedRows = [...validationSkippedRows, ...conflictSkippedRows];

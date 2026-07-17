@@ -516,7 +516,7 @@ export const getAspirantsForElection = async (req, res) => {
   try {
     const { electionId } = req.params;
     const schoolId = getStudentSchoolId(req.student);
-    const election = await Election.findById(electionId).select("schoolId votes");
+    const election = await Election.findById(electionId).select("schoolId audience");
 
     if (!election) {
       return sendError(res, 404, "Election not found");
@@ -564,7 +564,9 @@ export const buildStudentElectionRealtimePayload = async ({ electionId, studentI
     throw error;
   }
 
-  const student = await Student.findById(studentId).select("_id schoolId");
+  const student = await Student.findById(studentId).select(
+    "_id studentId schoolId department nationality accountRole"
+  );
   if (!student) {
     const error = new Error("Student not found");
     error.statusCode = 401;

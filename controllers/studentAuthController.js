@@ -34,6 +34,7 @@ const sanitizeEcUser = (ecUser) => ({
   name: getEcDisplayName(ecUser),
   email: ecUser.email,
   schoolId: ecUser.schoolId,
+  hasVotingPin: Boolean(ecUser.votingPin),
 });
 
 const findApprovedSchoolForEmail = async (email) => {
@@ -117,6 +118,7 @@ const issueSession = async (req, student) => {
     }),
     schoolId: student.schoolId,
     role: "student",
+    hasVotingPin: Boolean(student.votingPin),
   };
 };
 
@@ -133,6 +135,7 @@ const issueEcSession = async (ecUser) => {
     accessToken,
     role: EC_ROLE,
     user: sanitizeEcUser(ecUser),
+    hasVotingPin: Boolean(ecUser.votingPin),
   };
 };
 
@@ -204,9 +207,10 @@ export const loginWithGoogle = async (req, res) => {
         googleLinkedAt: new Date(),
       });
     } else {
-      const school = student.schoolId
+      const currentSchool = student.schoolId
         ? await School.findById(student.schoolId).select("allowedEmailDomains")
-        : await findApprovedSchoolForEmail(normalizedEmail);
+        : null;
+      const school = currentSchool || (await findApprovedSchoolForEmail(normalizedEmail));
 
       if (!school || !emailMatchesAllowedDomains(normalizedEmail, school.allowedEmailDomains)) {
         return sendError(res, 403, "Email does not match this student's school domain");
@@ -216,7 +220,7 @@ export const loginWithGoogle = async (req, res) => {
       student.googleLinkedAt = student.googleLinkedAt || new Date();
       student.authProvider = "google";
       student.isEmailVerified = true;
-      if (!student.schoolId) {
+      if (!student.schoolId || !currentSchool) {
         student.schoolId = school._id;
       }
       await student.save();
@@ -317,6 +321,7 @@ export const checkTokens = async (req, res) => {
           return res.status(200).json({
             user: sanitizeEcUser(admin),
             role: EC_ROLE,
+            hasVotingPin: Boolean(admin.votingPin),
           });
         }
       } else {
@@ -334,6 +339,7 @@ export const checkTokens = async (req, res) => {
               ),
             }),
             role: "student",
+            hasVotingPin: Boolean(student.votingPin),
           });
         }
       }
@@ -384,6 +390,7 @@ export const checkTokens = async (req, res) => {
           (await School.findById(student.schoolId).select("logoUrl"))?.logoUrl
         ),
       }),
+      hasVotingPin: Boolean(student.votingPin),
     });
   } catch {
     return sendError(res, 401, "Invalid or expired tokens");
@@ -443,6 +450,7 @@ export const refreshSession = async (req, res) => {
       }),
       schoolId: student.schoolId,
       role: "student",
+      hasVotingPin: Boolean(student.votingPin),
     });
   } catch {
     return sendError(res, 401, "Invalid or expired refresh token");

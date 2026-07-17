@@ -102,7 +102,13 @@ SchoolSchema.pre("save", function preSave(next) {
     this.allowedEmailDomains = normalizeAllowedEmailDomains(this.allowedEmailDomains);
   }
 
+  const shouldValidateAllowedDomains =
+    this.isNew ||
+    this.isModified("allowedEmailDomains") ||
+    this.isSelected("allowedEmailDomains");
+
   if (
+    shouldValidateAllowedDomains &&
     ["pending", "approved"].includes(this.registrationStatus || "approved") &&
     normalizeAllowedEmailDomains(this.allowedEmailDomains).length === 0
   ) {

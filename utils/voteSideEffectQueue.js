@@ -70,7 +70,7 @@ const buildElectionLiveStatsPayload = async ({ electionId, schoolId }) => {
   };
 };
 
-const emitElectionLiveStatsUpdate = async ({ electionId, schoolId }) => {
+export const emitElectionLiveStatsUpdate = async ({ electionId, schoolId }) => {
   const payload = await buildElectionLiveStatsPayload({ electionId, schoolId });
   await emitAdminSchoolEvent({
     eventName: "ec:election:stats:update",
@@ -92,7 +92,9 @@ const runBestEffortVoteSideEffect = async (name, fn) => {
 
 const processVoteSideEffectJob = async (job) => {
   const [student, election, aspirant] = await Promise.all([
-    Student.findById(job.voterId).select("_id firstName lastName schoolId").lean(),
+    Student.findById(job.voterId)
+      .select("_id studentId firstName lastName schoolId department nationality accountRole")
+      .lean(),
     Election.findById(job.electionId).select("_id title schoolId totalVotes notifications").lean(),
     Aspirant.findById(job.aspirantId)
       .select("_id name electoralCategory categoryId voteCount")

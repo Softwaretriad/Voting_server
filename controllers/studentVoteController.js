@@ -16,7 +16,10 @@ import { recordActivity } from "../utils/activityLog.js";
 import { emitElectionMonitorUpdate } from "../utils/liveMonitorSocket.js";
 import { isStudentEligibleForElection } from "../utils/electionEligibility.js";
 import { getCacheJson, setCacheJson } from "../utils/redisClient.js";
-import { enqueueVoteSideEffects } from "../utils/voteSideEffectQueue.js";
+import {
+  emitElectionLiveStatsUpdate,
+  enqueueVoteSideEffects,
+} from "../utils/voteSideEffectQueue.js";
 import {
   castStoredVote,
   incrementVoteCounters,
@@ -117,6 +120,10 @@ const runPostVoteSideEffects = async ({
     });
     await maybeNotifyTurnoutMilestone(election);
     await refreshElectionAnalyticsSnapshot(election);
+    await emitElectionLiveStatsUpdate({
+      electionId: election._id,
+      schoolId: student.schoolId,
+    });
     await emitElectionMonitorUpdate(election._id.toString());
   } catch (error) {
     console.error("Post-vote side effects failed:", error.message);

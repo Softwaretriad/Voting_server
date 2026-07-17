@@ -30,7 +30,7 @@ const attachStoredVotes = async (election) => {
   return {
     ...electionObject,
     _id: election._id,
-    votes,
+    storedVotes: votes,
     totalVotes: votes.length || election.totalVotes || 0,
   };
 };
@@ -117,7 +117,7 @@ const formatTimeRemaining = (endTime) => {
 };
 
 const buildTurnoutTrend = (election) => {
-  const votes = [...(election.votes || [])].sort(
+  const votes = [...(election.storedVotes || [])].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 
@@ -155,10 +155,10 @@ const buildTurnoutGrowthPercentage = (turnoutTrend) => {
 };
 
 const buildVoteDistribution = (election) => {
-  const totalVotes = election.votes?.length || 0;
+  const totalVotes = election.storedVotes?.length || 0;
 
   return (election.categories || []).map((category) => {
-    const votes = (election.votes || []).filter(
+    const votes = (election.storedVotes || []).filter(
       (vote) => vote.categoryId?.toString() === category._id.toString()
     ).length;
 
@@ -295,8 +295,8 @@ export const getAdminDashboard = async (req, res) => {
         return status === "active" || status === "scheduled";
       })
       .map(async (election) => {
-        const accreditedVoters = getAccreditedVoterCount(election.votes);
-        const ballotsCast = election.votes?.length || 0;
+        const accreditedVoters = getAccreditedVoterCount(election.storedVotes);
+        const ballotsCast = election.storedVotes?.length || 0;
         const audienceStudents = await getAudienceStudentsForElection(election);
         const { registeredVoters } = resolveRegisteredVoterBase({
           audienceStudents,
@@ -383,8 +383,8 @@ export const getAdminReports = async (req, res) => {
       ? electionsWithVotes.slice(pagination.skip, pagination.skip + pagination.limit)
       : electionsWithVotes;
     const reports = await Promise.all(pagedElections.map(async (election) => {
-      const uniqueVoters = getAccreditedVoterCount(election.votes);
-      const ballotsCast = election.votes?.length || 0;
+      const uniqueVoters = getAccreditedVoterCount(election.storedVotes);
+      const ballotsCast = election.storedVotes?.length || 0;
       const audienceStudents = await getAudienceStudentsForElection(election);
       const { registeredVoters } = resolveRegisteredVoterBase({
         audienceStudents,
@@ -463,13 +463,13 @@ export const getAdminElectionReport = async (req, res) => {
 
     const uniqueStudentVoterIds = Array.from(
       new Set(
-        (election.votes || [])
+        (election.storedVotes || [])
           .map((vote) => getVoteStudentIdentity(vote)?.toString())
           .filter(Boolean)
       )
     );
     const uniqueAccreditedVoterIds = new Set(
-      (election.votes || [])
+      (election.storedVotes || [])
         .map((vote) => getAccreditedVoterKey(vote))
         .filter(Boolean)
     );
@@ -481,7 +481,7 @@ export const getAdminElectionReport = async (req, res) => {
     });
     const registeredVoters = snapshot?.registeredVoters || registeredVoterBase.registeredVoters;
     const accreditedVoters = uniqueAccreditedVoterIds.size;
-    const ballotsCast = election.votes?.length || 0;
+    const ballotsCast = election.storedVotes?.length || 0;
     const votesCast = accreditedVoters;
     const turnoutPercentage =
       registeredVoters > 0
@@ -659,13 +659,13 @@ export const buildAdminElectionMonitorPayload = async ({
 
   const uniqueStudentVoterIds = Array.from(
     new Set(
-      (election.votes || [])
+      (election.storedVotes || [])
         .map((vote) => getVoteStudentIdentity(vote)?.toString())
         .filter(Boolean)
     )
   );
   const uniqueAccreditedVoterIds = new Set(
-    (election.votes || [])
+    (election.storedVotes || [])
       .map((vote) => getAccreditedVoterKey(vote))
       .filter(Boolean)
   );
@@ -677,7 +677,7 @@ export const buildAdminElectionMonitorPayload = async ({
   });
   const registeredVoters = snapshot?.registeredVoters || registeredVoterBase.registeredVoters;
   const accreditedVoters = uniqueAccreditedVoterIds.size;
-  const ballotsCast = election.votes?.length || 0;
+  const ballotsCast = election.storedVotes?.length || 0;
   const votesCast = accreditedVoters;
   const turnoutPercentage =
     (registeredVoters > 0

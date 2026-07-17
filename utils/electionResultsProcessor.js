@@ -64,7 +64,33 @@ const buildStudentReportElectionEventPayload = (election, statusOverride = null)
   schoolId: election.schoolId?.toString?.() || election.schoolId,
 });
 
-const buildAdminHomeElectionEventPayload = (election, statusOverride = null) => ({
+const buildAdminHomeElectionMetricsPayload = (analyticsSnapshot = null) => {
+  if (!analyticsSnapshot) {
+    return {};
+  }
+
+  const ballotsCast = Number(analyticsSnapshot.totalVotes || 0);
+  const accreditedVoters = Number(analyticsSnapshot.accreditedVoters || 0);
+
+  return {
+    votesCast: accreditedVoters,
+    totalVotes: ballotsCast,
+    accreditedVoters,
+    ballotsCast,
+    totalBallotsCast: ballotsCast,
+    registeredVoters: Number(analyticsSnapshot.registeredVoters || 0),
+    turnoutPercentage: Number(analyticsSnapshot.turnoutPercentage || 0),
+    updatedAt: analyticsSnapshot.refreshedAt
+      ? new Date(analyticsSnapshot.refreshedAt).toISOString()
+      : new Date().toISOString(),
+  };
+};
+
+const buildAdminHomeElectionEventPayload = (
+  election,
+  statusOverride = null,
+  analyticsSnapshot = null
+) => ({
   electionId: election._id.toString(),
   status: statusOverride || election.status,
   title: election.title,
@@ -72,6 +98,7 @@ const buildAdminHomeElectionEventPayload = (election, statusOverride = null) => 
   schoolId: election.schoolId?.toString?.() || election.schoolId,
   startDate: election.startTime ? election.startTime.toISOString() : null,
   endDate: election.endTime ? election.endTime.toISOString() : null,
+  ...buildAdminHomeElectionMetricsPayload(analyticsSnapshot),
 });
 
 export const processScheduledElections = async ({ forceElectionIds = [] } = {}) => {
@@ -100,7 +127,9 @@ export const processScheduledElections = async ({ forceElectionIds = [] } = {}) 
       startingSoonSentAt: new Date(),
     };
     await election.save();
-    await refreshElectionAnalyticsSnapshot(election);
+    await runLifecycleSideEffect(`analytics refresh ${election._id}`, () =>
+      refreshElectionAnalyticsSnapshot(election)
+    );
   }
 
   const filter =
@@ -122,7 +151,10 @@ export const processScheduledElections = async ({ forceElectionIds = [] } = {}) 
       liveSentAt: election.notifications?.liveSentAt || new Date(),
     };
     await election.save();
-    await refreshElectionAnalyticsSnapshot(election);
+    const analyticsSnapshot = await runLifecycleSideEffect(
+      `analytics refresh ${election._id}`,
+      () => refreshElectionAnalyticsSnapshot(election)
+    );
     const eligibleStudentIds = await getEligibleStudentObjectIdsForElection(election);
     await runLifecycleSideEffect(`ec live notification ${election._id}`, () =>
       notifySchoolAdmins({
@@ -154,7 +186,7 @@ export const processScheduledElections = async ({ forceElectionIds = [] } = {}) 
       emitAdminSchoolEvent({
         eventName: "ec:election:activated",
         schoolId: election.schoolId,
-        payload: buildAdminHomeElectionEventPayload(election, "active"),
+        payload: buildAdminHomeElectionEventPayload(election, "active", analyticsSnapshot),
       })
     );
     await runLifecycleSideEffect(`report activated socket ${election._id}`, () =>

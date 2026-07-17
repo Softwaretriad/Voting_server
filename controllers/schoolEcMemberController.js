@@ -4,6 +4,7 @@ import { recordActivity } from "../utils/activityLog.js";
 import { notifyAdmin, notifySchoolAdmins } from "../utils/notificationService.js";
 import { normalizeEmail } from "../utils/security.js";
 import { EC_ROLE, ecRoleQuery, isEcAccountRole } from "../utils/ecRole.js";
+import { emitEcUserEvent } from "../utils/liveMonitorSocket.js";
 
 const MAX_EC_MEMBERS_PER_SCHOOL = 5;
 
@@ -247,6 +248,18 @@ export const removeSchoolEcMember = async (req, res) => {
     ecMember.sessionVersion = Number(ecMember.sessionVersion || 0) + 1;
     await ecMember.save();
 
+    await emitEcUserEvent({
+      eventName: "ec:session:revoked",
+      ecUserId: ecMember._id,
+      payload: {
+        reason: "ec_demoted",
+        message: "Your EC access has been removed. Please sign in again.",
+        role: "student",
+        schoolId: schoolId?.toString?.() || String(schoolId),
+        studentId: ecMember.studentId,
+      },
+    });
+
     await notifySchoolAdmins({
       schoolId,
       type: "ec_member_removed",
@@ -261,7 +274,10 @@ export const removeSchoolEcMember = async (req, res) => {
       excludeEcUserIds: [ecId],
     });
 
-    return res.json({ message: "EC member removed" });
+    return res.json({
+      message: "EC member removed",
+      sessionRevoked: true,
+    });
   } catch (err) {
     console.error("Remove EC member error:", err);
     return res.status(500).json({ error: err.message });

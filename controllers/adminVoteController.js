@@ -14,6 +14,7 @@ import { maybeNotifyTurnoutMilestone } from "../utils/notificationService.js";
 import { refreshElectionAnalyticsSnapshot } from "../utils/electionAnalytics.js";
 import { EC_ROLE } from "../utils/ecRole.js";
 import { comparePin } from "../utils/security.js";
+import { emitElectionLiveStatsUpdate } from "../utils/voteSideEffectQueue.js";
 
 const votingPinRequiredResponse = (res) =>
   sendError(res, 409, "Voting PIN setup is required before voting", {
@@ -121,6 +122,10 @@ export const castAdminVote = async (req, res) => {
     });
     await maybeNotifyTurnoutMilestone(election);
     await refreshElectionAnalyticsSnapshot(election);
+    await emitElectionLiveStatsUpdate({
+      electionId: election._id,
+      schoolId: req.schoolId,
+    });
     await emitElectionMonitorUpdate(election._id.toString());
 
     return res.status(201).json({});

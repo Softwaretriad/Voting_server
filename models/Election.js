@@ -32,17 +32,6 @@ const ElectionSchema = new mongoose.Schema({
     nationalities: { type: [String], default: [] },
   },
   categories: { type: [ElectionCategorySchema], default: [] },
-  votes: [
-    {
-      candidate: String,
-      aspirantId: { type: mongoose.Schema.Types.ObjectId, ref: "Aspirant" },
-      electionId: { type: mongoose.Schema.Types.ObjectId, ref: "Election" },
-      categoryId: { type: mongoose.Schema.Types.ObjectId },
-      voterId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
-      studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
-      timestamp: { type: Date, default: Date.now },
-    },
-  ],
   totalVotes: { type: Number, default: 0 },
   notifications: {
     startingSoonSentAt: { type: Date, default: null },

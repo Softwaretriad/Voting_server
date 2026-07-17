@@ -541,7 +541,7 @@ const validateFreePlanElectionCadence = async ({
 
 const validateElectionStartEligibility = async (schoolId) => {
   const school = await School.findById(schoolId).select(
-    "plan subscriptionActive subscriptionExpiresAt subscriptionTerm oneOffElectionConsumed shortName"
+    "plan subscriptionActive subscriptionExpiresAt subscriptionTerm oneOffElectionConsumed shortName allowedEmailDomains"
   );
 
   if (!school) {
@@ -647,7 +647,7 @@ export const getAdminElectionCategories = async (req, res) => {
     const election = await Election.findOne({
       _id: req.params.electionId,
       schoolId: req.schoolId,
-    }).select("schoolId subTitle categories votes audience");
+    }).select("schoolId subTitle categories audience");
 
     if (!election) {
       return sendError(res, 404, "Election not found");
@@ -712,7 +712,7 @@ export const getAdminElectionAspirants = async (req, res) => {
     const election = await Election.findOne({
       _id: electionId,
       schoolId: req.schoolId,
-    }).select("_id schoolId audience votes");
+    }).select("_id schoolId audience");
 
     if (!election) {
       return sendError(res, 404, "Election not found");
